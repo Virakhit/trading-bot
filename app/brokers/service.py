@@ -74,7 +74,8 @@ class BrokerExecutionService:
     def _apply_event(self, event: BrokerEvent) -> BrokerEventRow:
         order = self._order(event.internal_order_id)
         payload_hash = digest(event.model_dump(mode="json"))
-        duplicate = self.session.scalar(select(BrokerEventRow).where(BrokerEventRow.broker_event_id == event.event_id))
+        duplicate = self.session.scalar(select(BrokerEventRow).where(BrokerEventRow.order_id == order.id,
+                                                                      BrokerEventRow.broker_event_id == event.event_id))
         if duplicate:
             if duplicate.payload_hash != payload_hash:
                 raise DuplicateBrokerEvent("Broker event ID reused with different payload")
@@ -85,7 +86,8 @@ class BrokerExecutionService:
             order.broker_order_id = event.broker_order_id
         disposition = "APPLIED"
         if event.fill:
-            existing_fill = self.session.scalar(select(BrokerFillRow).where(BrokerFillRow.execution_id == event.fill.execution_id))
+            existing_fill = self.session.scalar(select(BrokerFillRow).where(BrokerFillRow.order_id == order.id,
+                                                                            BrokerFillRow.execution_id == event.fill.execution_id))
             if existing_fill:
                 if not self._same_fill(existing_fill, order, event.fill):
                     raise DuplicateBrokerEvent("Execution ID reused with different payload")

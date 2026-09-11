@@ -261,12 +261,10 @@ def test_webull_config_masks_secrets_and_rejects_non_test():
         WebullSandboxConfig(app_key="x", app_secret="y", account_id="z", environment="production")
     with pytest.raises((BrokerAuthenticationError, ValidationError)):
         WebullSandboxConfig(app_key="", app_secret="y", account_id="z")
-    with pytest.raises(UnsupportedBrokerFeature):
-        arun(WebullSandboxAdapter(config).submit_order(None))
 
 
 def test_webull_missing_environment_credentials(monkeypatch):
-    for name in ("WEBULL_APP_KEY", "WEBULL_APP_SECRET", "WEBULL_ACCOUNT_ID"):
+    for name in ("WEBULL_TEST_APP_KEY", "WEBULL_TEST_APP_SECRET", "WEBULL_TEST_ACCOUNT_ID"):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(BrokerAuthenticationError):
         WebullSandboxConfig.from_env(None)
@@ -274,7 +272,7 @@ def test_webull_missing_environment_credentials(monkeypatch):
 
 def test_main_settings_accepts_separate_webull_environment(tmp_path):
     path = tmp_path / ".env"
-    path.write_text("MODE=paper\nWEBULL_APP_KEY=separate-secret\n", encoding="utf-8")
+    path.write_text("MODE=paper\nWEBULL_TEST_APP_KEY=separate-secret\n", encoding="utf-8")
     assert Settings(_env_file=path).mode == "paper"
 
 

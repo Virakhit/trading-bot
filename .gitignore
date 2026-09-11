@@ -1,7 +1,9 @@
 .venv/
 __pycache__/
 .pytest_cache/
+.pytest_tmp/
 *.egg-info/
 .env
 data/*.db*
 logs/*.jsonl
+*.log

@@ -125,6 +125,8 @@ class DurableBrokerExecutor:
             command.correlation_id = remote.broker_order_id or remote.client_order_id
             if remote.broker_order_id and order.broker_order_id is None:
                 order.broker_order_id = remote.broker_order_id
+            if OrderState(order.state) != remote.state:
+                BrokerExecutionService(session, self.broker, session.get(BrokerAccount, command.account_id)).transition(order, remote.state)
         return remote
 
     def get_command(self, command_id: str) -> BrokerCommand:

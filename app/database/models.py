@@ -166,7 +166,8 @@ class BrokerPosition(Record, Base):
 
 class BrokerOrder(Record, Base):
     __tablename__ = "broker_orders"
-    __table_args__ = (UniqueConstraint("client_order_id"), UniqueConstraint("broker", "environment", "broker_order_id"))
+    __table_args__ = (UniqueConstraint("account_id", "client_order_id", name="uq_broker_order_client_account"),
+                      UniqueConstraint("broker", "environment", "account_id", "broker_order_id", name="uq_broker_order_remote_account"))
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"))
     signal_id: Mapped[str] = mapped_column(ForeignKey("signals.id"))
     risk_decision_id: Mapped[str] = mapped_column(ForeignKey("risk_decisions.id"))
@@ -188,8 +189,9 @@ class BrokerOrder(Record, Base):
 
 class BrokerEventRow(Record, Base):
     __tablename__ = "broker_events"
+    __table_args__ = (UniqueConstraint("order_id", "broker_event_id", name="uq_broker_event_order"),)
     order_id: Mapped[str] = mapped_column(ForeignKey("broker_orders.id"))
-    broker_event_id: Mapped[str] = mapped_column(String(100), unique=True)
+    broker_event_id: Mapped[str] = mapped_column(String(100))
     state: Mapped[str] = mapped_column(String(30))
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     source: Mapped[str] = mapped_column(String(40))
@@ -200,9 +202,10 @@ class BrokerEventRow(Record, Base):
 
 class BrokerFillRow(Record, Base):
     __tablename__ = "broker_fills"
+    __table_args__ = (UniqueConstraint("order_id", "execution_id", name="uq_broker_fill_order"),)
     order_id: Mapped[str] = mapped_column(ForeignKey("broker_orders.id"))
     event_id: Mapped[str] = mapped_column(ForeignKey("broker_events.id"), unique=True)
-    execution_id: Mapped[str] = mapped_column(String(100), unique=True)
+    execution_id: Mapped[str] = mapped_column(String(100))
     quantity: Mapped[Decimal] = mapped_column(ExactDecimal())
     price: Mapped[Decimal] = mapped_column(ExactDecimal())
     fee: Mapped[Decimal] = mapped_column(ExactDecimal())
@@ -211,6 +214,7 @@ class BrokerFillRow(Record, Base):
 
 class BrokerCommand(Record, Base):
     __tablename__ = "broker_commands"
+    __table_args__ = (UniqueConstraint("order_id", "command_type", "id", name="uq_broker_command_attempt"),)
     order_id: Mapped[str] = mapped_column(ForeignKey("broker_orders.id"))
     account_id: Mapped[str] = mapped_column(ForeignKey("broker_accounts.id"))
     command_type: Mapped[str] = mapped_column(String(16))

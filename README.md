@@ -1,6 +1,20 @@
 # Deterministic paper trading research
 
-Python 3.12 local, long-only stock research. Phase 1 is the deterministic simulator. Phase 2 adds a persisted asynchronous mock-broker lifecycle. There is no live execution route, AI, LLM, or Hermes integration. `MODE` accepts only `paper`; both Webull execution classes fail closed.
+## Phase boundaries
+
+- Phase 1: deterministic local simulation.
+- Phase 2: asynchronous broker-safe lifecycle and reconciliation.
+- Phase 3: durable broker commands plus an official Webull Thailand TEST adapter.
+
+**PRODUCTION TRADING IS NOT AVAILABLE.** No strategy, risk engine, or paper runner automatically sends Webull orders.
+
+Webull accepts only `WEBULL_TEST_APP_KEY`, `WEBULL_TEST_APP_SECRET`, and `WEBULL_TEST_ACCOUNT_ID`. The adapter fixes `region=th`, `environment=test`, `th-api.uat.webullbroker.com`, and `th-events-api.uat.webullbroker.com`; writes require an exact account-list match. Diagnostics mask credentials and persist only the account hash.
+
+Run `.venv/Scripts/python.exe -m pytest -q`. Read-only connectivity requires `RUN_WEBULL_TH_TEST_INTEGRATION=1`. The separate order contract requires `RUN_WEBULL_TH_TEST_ORDER=1` and remains operator-configured/skipped until safe inputs are selected. CI enables neither flag.
+
+Submit and cancel commands commit before transport. Ambiguous results remain `UNKNOWN`, reconcile by `client_order_id`, and never retry automatically. Trading Events emit domain events; `BrokerExecutionService` remains the accounting boundary and REST reconciliation covers gaps.
+
+Python 3.12 local, long-only stock research. Phase 1 is the deterministic simulator. Phase 2 adds a persisted asynchronous mock-broker lifecycle. Phase 3 exposes a separately invoked Thailand TEST adapter. There is no production execution route, AI, LLM, or Hermes integration. `MODE` accepts only `paper`.
 
 ## Quick start (PowerShell)
 
@@ -103,9 +117,9 @@ Use `.env` or process environment for configuration. Do not commit credentials. 
 
 Webull Thailand publishes an official OpenAPI developer site at `developer.webull.co.th`. The Thailand SDK examples use region `th`. The official API-environments page documents a separate **Test** environment: Trading API `th-api.uat.webullbroker.com` and Trading Events (gRPC) `th-events-api.uat.webullbroker.com`. It also documents official Python/Java SDKs, client-generated order IDs, account IDs, stock order placement, and asynchronous order-status events. Production is a separate environment and is deliberately not representable by this repository's execution configuration.
 
-`WebullTestConfig` (with backward-compatible import name `WebullSandboxConfig`) accepts only broker `webull`, region `th`, environment `test`, and the exact Thailand test hosts above. Credentials come only from `WEBULL_APP_KEY`, `WEBULL_APP_SECRET`, and `WEBULL_ACCOUNT_ID`; diagnostics mask them and only a SHA-256 account reference may be stored. `.env` remains ignored and `.env.example` contains placeholders only.
+`WebullTestConfig` (with backward-compatible import name `WebullSandboxConfig`) accepts only broker `webull`, region `th`, environment `test`, and the exact Thailand test hosts above. Credentials come only from `WEBULL_TEST_APP_KEY`, `WEBULL_TEST_APP_SECRET`, and `WEBULL_TEST_ACCOUNT_ID`; diagnostics mask them and only a SHA-256 account reference may be stored. `.env` remains ignored and `.env.example` contains placeholders only.
 
-`WebullSandboxAdapter` remains intentionally non-operational in Phase 2: it constructs no SDK client or network transport and all broker methods raise `UnsupportedBrokerFeature`. The official Thailand docs prove a test environment exists, but this repository has not performed an external Webull API call or positively validated a dedicated test account. Therefore order submission remains disabled; there is no production fallback and no live mode.
+`WebullTestAdapter` uses the official pinned SDK for normalized account, order, fill, and position operations. It attests the configured TEST account before every first write. External authenticated behavior is not claimed until the opt-in integration tests succeed. There is no production fallback or live mode.
 
 ## Phase 2 accounting, recovery and reconciliation
 

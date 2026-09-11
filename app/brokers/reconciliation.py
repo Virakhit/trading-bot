@@ -15,6 +15,7 @@ class Difference(StrEnum):
     QUANTITY_MISMATCH = "QUANTITY_MISMATCH"
     CASH_MISMATCH = "CASH_MISMATCH"
     POSITION_MISMATCH = "POSITION_MISMATCH"
+    PAYLOAD_MISMATCH = "PAYLOAD_MISMATCH"
     UNKNOWN = "UNKNOWN"
 
 
@@ -54,15 +55,20 @@ def reconcile(session: Session, account: BrokerAccount, broker_orders: list[Brok
             result.append(ReconciliationItem(Difference.QUANTITY_MISMATCH, "order", order_id, str(local.filled_quantity), str(remote.filled_quantity)))
         else:
             result.append(ReconciliationItem(Difference.MATCH, "order", order_id, local.state, remote.state))
-    local_fills = {f.execution_id for f in session.scalars(select(BrokerFillRow).join(BrokerOrder).where(BrokerOrder.account_id == account.id))}
-    remote_fills = {event.fill.execution_id for event in (broker_fills or []) if event.fill}
+    local_fills = {f.execution_id: f for f in session.scalars(select(BrokerFillRow).join(BrokerOrder).where(BrokerOrder.account_id == account.id))}
+    remote_fills = {event.fill.execution_id: (event, event.fill) for event in (broker_fills or []) if event.fill}
     for execution_id in sorted(local_fills | remote_fills):
         if execution_id not in local_fills:
             result.append(ReconciliationItem(Difference.LOCAL_MISSING, "fill", execution_id, None, "present"))
         elif execution_id not in remote_fills:
             result.append(ReconciliationItem(Difference.BROKER_MISSING, "fill", execution_id, "present", None))
         else:
-            result.append(ReconciliationItem(Difference.MATCH, "fill", execution_id, "present", "present"))
+            local, (event, remote) = local_fills[execution_id], remote_fills[execution_id]
+            same = (local.order_id == event.internal_order_id and local.quantity == remote.quantity and
+                    local.price == remote.price and local.fee == remote.fee)
+            result.append(ReconciliationItem(Difference.MATCH if same else Difference.PAYLOAD_MISMATCH, "fill",
+                                             execution_id, f"{local.order_id}:{local.quantity}:{local.price}:{local.fee}",
+                                             f"{event.internal_order_id}:{remote.quantity}:{remote.price}:{remote.fee}"))
     if account.account_ref != broker_account.account_ref or account.environment != broker_account.environment:
         result.append(ReconciliationItem(Difference.UNKNOWN, "account", account.id,
                                          f"{account.environment}:{account.account_ref}",
