@@ -243,7 +243,11 @@ def test_decimal_rules_and_stale_quote_are_explicit():
                           quote_age_limit_seconds="1")
 
 
+<<<<<<< HEAD
 def test_webull_config_masks_secrets_and_rejects_non_sandbox():
+=======
+def test_webull_config_masks_secrets_and_rejects_production():
+>>>>>>> 750ac47c39b4ec7e8da90189fe27046c249e74e9
     config = WebullSandboxConfig(app_key="secret-key", app_secret="secret-value", account_id="personal-account")
     diagnostics = str(config.diagnostics())
     assert "secret-key" not in diagnostics and "secret-value" not in diagnostics and "personal-account" not in diagnostics
