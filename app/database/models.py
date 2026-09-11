@@ -207,3 +207,17 @@ class BrokerFillRow(Record, Base):
     price: Mapped[Decimal] = mapped_column(ExactDecimal())
     fee: Mapped[Decimal] = mapped_column(ExactDecimal())
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class BrokerCommand(Record, Base):
+    __tablename__ = "broker_commands"
+    order_id: Mapped[str] = mapped_column(ForeignKey("broker_orders.id"))
+    account_id: Mapped[str] = mapped_column(ForeignKey("broker_accounts.id"))
+    command_type: Mapped[str] = mapped_column(String(16))
+    client_order_id: Mapped[str] = mapped_column(String(64))
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    safe_error_category: Mapped[str | None] = mapped_column(String(80))
+    correlation_id: Mapped[str | None] = mapped_column(String(160))

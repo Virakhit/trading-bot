@@ -46,3 +46,12 @@ class BrokerEventConsistencyError(BrokerError):
 class SubmissionOutcomeUnknown(BrokerError):
     safety_critical = True
 
+
+class BrokerDefinitelyNotSent(BrokerError):
+    """Transport was positively not attempted; explicit retry may be prepared."""
+    retryable = True
+
+
+class BrokerCommandOutcomeUnknown(BrokerError):
+    """A network command may have reached the broker; reconciliation is mandatory."""
+    safety_critical = True

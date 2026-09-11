@@ -16,22 +16,27 @@ class MockBroker:
         self.events: list[BrokerEvent] = []
         self._scripts: dict[str, deque[BrokerEvent]] = {}
         self._history_times: dict[str, datetime] = {}
+        self._client_to_internal: dict[str, str] = {}
 
     def script(self, internal_order_id: str, events: list[BrokerEvent]) -> None:
         self._scripts[internal_order_id] = deque(events)
+
+    def bind_order(self, internal_order_id: str, client_order_id: str) -> None:
+        self._client_to_internal[client_order_id] = internal_order_id
 
     async def submit_order(self, intent: BrokerOrderIntent) -> BrokerEvent:
         existing = self.orders.get(intent.internal_order_id)
         if existing:
             return next(e for e in self.events if e.internal_order_id == intent.internal_order_id)
+        self.bind_order(intent.internal_order_id, intent.client_order_id)
         broker_id = "mock-" + intent.internal_order_id
         view = BrokerOrderView(internal_order_id=intent.internal_order_id, client_order_id=intent.client_order_id,
                                broker_order_id=broker_id, state=OrderState.SUBMITTED, symbol=intent.symbol,
                                side=intent.side, quantity=intent.quantity, filled_quantity=0)
         self.orders[intent.internal_order_id] = view
-        event = BrokerEvent(event_id=str(uuid5(NAMESPACE_URL, broker_id + ":submitted")), internal_order_id=intent.internal_order_id,
-                            broker_order_id=broker_id, state=OrderState.SUBMITTED,
-                            timestamp=intent.submitted_at, source="mock")
+        event = BrokerEvent(event_id=str(uuid5(NAMESPACE_URL, broker_id + ":submitted")),
+                            internal_order_id=intent.internal_order_id, broker_order_id=broker_id,
+                            state=OrderState.SUBMITTED, timestamp=intent.submitted_at, source="mock")
         self.events.append(event)
         self._history_times[intent.internal_order_id] = intent.submitted_at
         return event
@@ -58,13 +63,20 @@ class MockBroker:
             raise OrderRejected("Unknown order")
         event = BrokerEvent(event_id=str(uuid5(NAMESPACE_URL, internal_order_id + ":cancel-request")),
                            internal_order_id=internal_order_id, broker_order_id=view.broker_order_id,
-                           state=OrderState.CANCEL_PENDING, timestamp=datetime(2000, 1, 1, tzinfo=timezone.utc), source="mock")
+                           state=OrderState.CANCEL_PENDING,
+                           timestamp=datetime(2000, 1, 1, tzinfo=timezone.utc), source="mock")
         self.events.append(event)
         self._history_times[internal_order_id] = event.timestamp
         return event
 
     async def query_order(self, internal_order_id: str) -> BrokerOrderView | None:
         return self.orders.get(internal_order_id)
+
+    async def query_order_by_client_id(self, client_order_id: str) -> BrokerOrderView | None:
+        internal_order_id = self._client_to_internal.get(client_order_id)
+        if internal_order_id is not None:
+            return self.orders.get(internal_order_id)
+        return next((order for order in self.orders.values() if order.client_order_id == client_order_id), None)
 
     async def query_open_orders(self) -> list[BrokerOrderView]:
         return [order for order in self.orders.values() if order.state not in TERMINAL_STATES]
@@ -87,6 +99,7 @@ class MockBroker:
         if timestamp.tzinfo is None:
             raise ValueError("History timestamp must be timezone-aware")
         self.orders[order.internal_order_id] = order
+        self.bind_order(order.internal_order_id, order.client_order_id)
         self._history_times[order.internal_order_id] = timestamp
 
     async def query_fills(self) -> list[BrokerEvent]:
