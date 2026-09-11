@@ -1,4 +1,5 @@
 from typing import Protocol
+from uuid import NAMESPACE_URL, uuid5
 from app.config import Settings
 from app.core.types import Bar, ExecutionResult, Fill, OrderRequest
 
@@ -21,7 +22,8 @@ class PaperExecutionEngine:
         quantity = min(order.quantity, quote.volume)
         if not quantity:
             return ExecutionResult(status="REJECTED", reason="NO_LIQUIDITY")
-        fill = Fill(quantity=quantity, price=price, fee=quantity * self.settings.fee_per_share, timestamp=quote.timestamp)
+        fill = Fill(fill_id=str(uuid5(NAMESPACE_URL, order.order_id + ":paper-ioc:0")),
+                    quantity=quantity, price=price, fee=quantity * self.settings.fee_per_share, timestamp=quote.timestamp)
         return ExecutionResult(status="FILLED" if quantity == order.quantity else "PARTIALLY_FILLED",
                                fills=[fill], reason=None if quantity == order.quantity else "IOC_REMAINDER_CANCELLED")
 

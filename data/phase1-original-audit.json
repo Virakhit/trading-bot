@@ -1,0 +1,377 @@
+{
+  "verified": true,
+  "run_id": "4e068832-ca98-4a8d-aefe-97ad15b6a180",
+  "status": "COMPLETED",
+  "strategy": {
+    "strategy_id": "demo-momentum",
+    "name": "Three-bar momentum",
+    "strategy_version": "1.0.0",
+    "version_id": "c6e79ee1-767e-481f-b4c5-df74464d6eeb",
+    "configuration": {
+      "warmup_bars": 3,
+      "timeframe": "1m"
+    },
+    "configuration_hash": "99f29d8e806e6320546f126114eb14d1300e6f79c67300047a59c871f3fffca9",
+    "git_sha": null,
+    "code_hash": "6bedc45feddbcf2b3b4ca4d042ee8aa0ac3ccd9a35618676735f266012e2cbac",
+    "source_available": false
+  },
+  "signal_categories": {
+    "executed": 4,
+    "rejected by risk": 0,
+    "HOLD/no action": 7,
+    "duplicate/prevented": 0,
+    "other": 0
+  },
+  "signals": [
+    {
+      "signal_id": "ee886cc4-62b8-4b5d-a255-f7f6090236c8",
+      "timestamp": "2026-01-05T14:30:00Z",
+      "action": "HOLD",
+      "category": "HOLD/no action",
+      "snapshot_id": "72cace81-0a74-43f1-b448-dbaf35ca6068",
+      "risk_id": "14ca1b9c-f195-4534-a4e5-5112178b035c",
+      "risk_status": "REJECTED",
+      "reason_codes": [
+        "NO_ACTION"
+      ],
+      "order_ids": [],
+      "fill_ids": []
+    },
+    {
+      "signal_id": "7f24cf00-0f4f-409c-b7cc-87fe46c54b78",
+      "timestamp": "2026-01-05T14:31:00Z",
+      "action": "HOLD",
+      "category": "HOLD/no action",
+      "snapshot_id": "55e69305-eada-4152-babe-3e73d281c3f0",
+      "risk_id": "38564309-6ba6-4031-96f2-c101ccda9082",
+      "risk_status": "REJECTED",
+      "reason_codes": [
+        "NO_ACTION"
+      ],
+      "order_ids": [],
+      "fill_ids": []
+    },
+    {
+      "signal_id": "312051d1-41b9-4d1e-be93-df8cb245bc1b",
+      "timestamp": "2026-01-05T14:32:00Z",
+      "action": "BUY",
+      "category": "executed",
+      "snapshot_id": "124c18a2-7ac8-4c1e-a52e-5d3e0a97c78a",
+      "risk_id": "cde23f3a-8579-4f4a-9334-736598eb0876",
+      "risk_status": "APPROVED",
+      "reason_codes": [],
+      "order_ids": [
+        "67235215-38f8-421b-a2d5-491e4756f4f0"
+      ],
+      "fill_ids": [
+        "971a2f12-23fd-4590-98e2-cbd524e0b318"
+      ]
+    },
+    {
+      "signal_id": "52128b78-3b3e-4603-a268-6f2b88373062",
+      "timestamp": "2026-01-05T14:33:00Z",
+      "action": "HOLD",
+      "category": "HOLD/no action",
+      "snapshot_id": "cbf2c857-69c7-4aaf-88f4-a5015f8abacd",
+      "risk_id": "f62c07a6-ec6d-4030-8b9f-25ff1e1fcb8b",
+      "risk_status": "REJECTED",
+      "reason_codes": [
+        "NO_ACTION"
+      ],
+      "order_ids": [],
+      "fill_ids": []
+    },
+    {
+      "signal_id": "d242e010-9319-452a-9670-f57122360859",
+      "timestamp": "2026-01-05T14:34:00Z",
+      "action": "HOLD",
+      "category": "HOLD/no action",
+      "snapshot_id": "60dab1b6-84c0-4eb9-85c8-7fb6d292320a",
+      "risk_id": "e773040e-80d1-48cc-8def-f91dfb4cf8af",
+      "risk_status": "REJECTED",
+      "reason_codes": [
+        "NO_ACTION"
+      ],
+      "order_ids": [],
+      "fill_ids": []
+    },
+    {
+      "signal_id": "125672c1-b490-4b1c-ab33-0dd55430b5fb",
+      "timestamp": "2026-01-05T14:35:00Z",
+      "action": "EXIT",
+      "category": "executed",
+      "snapshot_id": "b1bd3b8b-8111-4792-90ef-b02692cbace1",
+      "risk_id": "4f99cac3-1448-47b4-8137-df604f2c1645",
+      "risk_status": "APPROVED",
+      "reason_codes": [],
+      "order_ids": [
+        "c7bb8bf3-db07-45be-bc8c-13464900e21d"
+      ],
+      "fill_ids": [
+        "8ffc1dd2-58d7-4e77-9f3a-44c63a061188"
+      ]
+    },
+    {
+      "signal_id": "a151948e-dd6a-445d-9c5b-dd99610a552c",
+      "timestamp": "2026-01-05T14:36:00Z",
+      "action": "HOLD",
+      "category": "HOLD/no action",
+      "snapshot_id": "52c887e5-1cb6-48fe-9a95-c4f30930d7a0",
+      "risk_id": "71a0a8c4-0613-4dcc-bd4d-061ba38b3c42",
+      "risk_status": "REJECTED",
+      "reason_codes": [
+        "NO_ACTION"
+      ],
+      "order_ids": [],
+      "fill_ids": []
+    },
+    {
+      "signal_id": "81c4411a-0887-4021-b8b9-4ac3e5a74dbb",
+      "timestamp": "2026-01-05T14:37:00Z",
+      "action": "BUY",
+      "category": "executed",
+      "snapshot_id": "d5b75f31-5a09-4db9-82e6-10429cf7dc53",
+      "risk_id": "bc859724-b24a-4f2c-929e-264917faa3bc",
+      "risk_status": "APPROVED",
+      "reason_codes": [],
+      "order_ids": [
+        "4f255730-4df5-4cfa-a8b1-cfff0d7465b6"
+      ],
+      "fill_ids": [
+        "8263bb65-f384-47ea-9b23-c64b628691d6"
+      ]
+    },
+    {
+      "signal_id": "d0cc98b6-0fd9-4197-aa9a-808c7f99067d",
+      "timestamp": "2026-01-05T14:38:00Z",
+      "action": "HOLD",
+      "category": "HOLD/no action",
+      "snapshot_id": "ad1d727f-2fe0-481a-9499-0bd4055c225f",
+      "risk_id": "3a4c7173-97e6-4406-bbc7-3d5700a5484f",
+      "risk_status": "REJECTED",
+      "reason_codes": [
+        "NO_ACTION"
+      ],
+      "order_ids": [],
+      "fill_ids": []
+    },
+    {
+      "signal_id": "be4fb02a-fab5-49c4-a566-cbb8b1db830a",
+      "timestamp": "2026-01-05T14:39:00Z",
+      "action": "HOLD",
+      "category": "HOLD/no action",
+      "snapshot_id": "80478882-cd17-42c1-b0e8-a4dbe19d2ad3",
+      "risk_id": "f73bd277-c204-4c9e-9435-6102ac3c24b5",
+      "risk_status": "REJECTED",
+      "reason_codes": [
+        "NO_ACTION"
+      ],
+      "order_ids": [],
+      "fill_ids": []
+    },
+    {
+      "signal_id": "c72c006e-6130-4a44-ac20-518df950301c",
+      "timestamp": "2026-01-05T14:40:00Z",
+      "action": "EXIT",
+      "category": "executed",
+      "snapshot_id": "04a8a543-e180-4d27-8d03-9da9b1cb893c",
+      "risk_id": "729a9457-8abe-41b8-b425-731e4dcaf184",
+      "risk_status": "APPROVED",
+      "reason_codes": [],
+      "order_ids": [
+        "d6dfd645-28e4-47dc-b2b4-9bfbb0638078"
+      ],
+      "fill_ids": [
+        "25f0e1a9-f1a6-4798-94d7-6224034e1bdd"
+      ]
+    }
+  ],
+  "trades": [
+    {
+      "trade_id": "79fddc21-2a28-4492-ba8a-c2c38c7daaf5",
+      "version_id": "c6e79ee1-767e-481f-b4c5-df74464d6eeb",
+      "position_id": "c8e830a2-f633-4916-a855-1886e6ba65bf",
+      "metrics_id": "aa19032b-1f38-402a-a8ee-c0d0d63a9e22",
+      "status": "CLOSED",
+      "steps": [
+        {
+          "signal_id": "312051d1-41b9-4d1e-be93-df8cb245bc1b",
+          "snapshot_id": "124c18a2-7ac8-4c1e-a52e-5d3e0a97c78a",
+          "risk_id": "cde23f3a-8579-4f4a-9334-736598eb0876",
+          "order_id": "67235215-38f8-421b-a2d5-491e4756f4f0",
+          "fill_id": "971a2f12-23fd-4590-98e2-cbd524e0b318",
+          "position_id": "c8e830a2-f633-4916-a855-1886e6ba65bf",
+          "side": "BUY",
+          "quantity": 10,
+          "signal_price": 101.0,
+          "order_type": "MARKET",
+          "requested_price": null,
+          "bid": 100.99,
+          "ask": 101.01,
+          "fill_price": 101.030202,
+          "fee": 0.05,
+          "slippage": 0.30202
+        },
+        {
+          "signal_id": "125672c1-b490-4b1c-ab33-0dd55430b5fb",
+          "snapshot_id": "b1bd3b8b-8111-4792-90ef-b02692cbace1",
+          "risk_id": "4f99cac3-1448-47b4-8137-df604f2c1645",
+          "order_id": "c7bb8bf3-db07-45be-bc8c-13464900e21d",
+          "fill_id": "8ffc1dd2-58d7-4e77-9f3a-44c63a061188",
+          "position_id": "c8e830a2-f633-4916-a855-1886e6ba65bf",
+          "side": "SELL",
+          "quantity": 10,
+          "signal_price": 99.0,
+          "order_type": "MARKET",
+          "requested_price": null,
+          "bid": 98.99,
+          "ask": 99.01,
+          "fill_price": 98.970202,
+          "fee": 0.05,
+          "slippage": 0.29798
+        }
+      ],
+      "price_sequence": [
+        {
+          "timestamp": "2026-01-05T14:32:00Z",
+          "price": 101.0,
+          "kind": "close",
+          "unrealized_pnl": -0.30202
+        },
+        {
+          "timestamp": "2026-01-05T14:33:00Z",
+          "price": 103.0,
+          "kind": "close",
+          "unrealized_pnl": 19.69798
+        },
+        {
+          "timestamp": "2026-01-05T14:34:00Z",
+          "price": 102.0,
+          "kind": "close",
+          "unrealized_pnl": 9.69798
+        },
+        {
+          "timestamp": "2026-01-05T14:35:00Z",
+          "price": 99.0,
+          "kind": "close",
+          "unrealized_pnl": -20.30202
+        },
+        {
+          "timestamp": "2026-01-05T14:35:00Z",
+          "price": 98.970202,
+          "kind": "exit_fill",
+          "unrealized_pnl": -20.6
+        }
+      ],
+      "independently_recalculated": {
+        "gross_pnl": -20.6,
+        "fees": 0.1,
+        "net_pnl": -20.7,
+        "entry_slippage": 0.30202,
+        "exit_slippage": 0.29798,
+        "total_slippage": 0.6,
+        "mae": -20.6,
+        "mfe": 19.69798
+      }
+    },
+    {
+      "trade_id": "72af4adf-7e13-42ed-9c00-370ef18b3b02",
+      "version_id": "c6e79ee1-767e-481f-b4c5-df74464d6eeb",
+      "position_id": "c8e830a2-f633-4916-a855-1886e6ba65bf",
+      "metrics_id": "10871081-ee1b-4a74-a864-7a45fed1444d",
+      "status": "CLOSED",
+      "steps": [
+        {
+          "signal_id": "81c4411a-0887-4021-b8b9-4ac3e5a74dbb",
+          "snapshot_id": "d5b75f31-5a09-4db9-82e6-10429cf7dc53",
+          "risk_id": "bc859724-b24a-4f2c-929e-264917faa3bc",
+          "order_id": "4f255730-4df5-4cfa-a8b1-cfff0d7465b6",
+          "fill_id": "8263bb65-f384-47ea-9b23-c64b628691d6",
+          "position_id": "c8e830a2-f633-4916-a855-1886e6ba65bf",
+          "side": "BUY",
+          "quantity": 10,
+          "signal_price": 100.0,
+          "order_type": "MARKET",
+          "requested_price": null,
+          "bid": 99.99,
+          "ask": 100.01,
+          "fill_price": 100.030002,
+          "fee": 0.05,
+          "slippage": 0.30002
+        },
+        {
+          "signal_id": "c72c006e-6130-4a44-ac20-518df950301c",
+          "snapshot_id": "04a8a543-e180-4d27-8d03-9da9b1cb893c",
+          "risk_id": "729a9457-8abe-41b8-b425-731e4dcaf184",
+          "order_id": "d6dfd645-28e4-47dc-b2b4-9bfbb0638078",
+          "fill_id": "25f0e1a9-f1a6-4798-94d7-6224034e1bdd",
+          "position_id": "c8e830a2-f633-4916-a855-1886e6ba65bf",
+          "side": "SELL",
+          "quantity": 10,
+          "signal_price": 101.0,
+          "order_type": "MARKET",
+          "requested_price": null,
+          "bid": 100.99,
+          "ask": 101.01,
+          "fill_price": 100.969802,
+          "fee": 0.05,
+          "slippage": 0.30198
+        }
+      ],
+      "price_sequence": [
+        {
+          "timestamp": "2026-01-05T14:37:00Z",
+          "price": 100.0,
+          "kind": "close",
+          "unrealized_pnl": -0.30002
+        },
+        {
+          "timestamp": "2026-01-05T14:38:00Z",
+          "price": 103.0,
+          "kind": "close",
+          "unrealized_pnl": 29.69998
+        },
+        {
+          "timestamp": "2026-01-05T14:39:00Z",
+          "price": 104.0,
+          "kind": "close",
+          "unrealized_pnl": 39.69998
+        },
+        {
+          "timestamp": "2026-01-05T14:40:00Z",
+          "price": 101.0,
+          "kind": "close",
+          "unrealized_pnl": 9.69998
+        },
+        {
+          "timestamp": "2026-01-05T14:40:00Z",
+          "price": 100.969802,
+          "kind": "exit_fill",
+          "unrealized_pnl": 9.398
+        }
+      ],
+      "independently_recalculated": {
+        "gross_pnl": 9.398,
+        "fees": 0.1,
+        "net_pnl": 9.298,
+        "entry_slippage": 0.30002,
+        "exit_slippage": 0.30198,
+        "total_slippage": 0.602,
+        "mae": -0.30002,
+        "mfe": 39.69998
+      }
+    }
+  ],
+  "reconciliation": {
+    "starting_cash": 10000.0,
+    "entry_cost": 2010.60204,
+    "exit_proceeds": 1999.40004,
+    "gross_realized_pnl": -11.202,
+    "fees": 0.2,
+    "slippage_already_in_fill_prices": 1.202,
+    "net_pnl": -11.402,
+    "ending_cash": 9988.598,
+    "ending_equity": 9988.598
+  }
+}

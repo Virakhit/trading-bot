@@ -33,6 +33,7 @@ def main() -> None:
     parser.add_argument("--symbol", default="DEMO")
     parser.add_argument("--quantity", type=int, default=10)
     parser.add_argument("--run-id")
+    parser.add_argument("--max-bars", type=int, help="Pause after this many additional bars; resume with --run-id and the same CSV")
     args = parser.parse_args()
     settings = Settings()
     Path("data").mkdir(exist_ok=True)
@@ -49,7 +50,8 @@ def main() -> None:
     else:
         engine = engine_for(settings.database_url)
         if args.command == "run-paper":
-            print(run_paper(engine, settings, MomentumStrategy(), CSVProvider(args.csv).historical(args.symbol), args.quantity))
+            print(run_paper(engine, settings, MomentumStrategy(), CSVProvider(args.csv).historical(args.symbol), args.quantity,
+                            run_id=args.run_id, max_bars=args.max_bars))
             return
         with Session(engine) as session:
             run = session.get(Run, args.run_id) if args.run_id else session.scalar(select(Run).order_by(Run.created_at.desc()))

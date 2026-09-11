@@ -22,7 +22,7 @@ Copy-Item .env.example .env
 
 Alternatively create a Python 3.12 venv using `py -3.12 -m venv .venv`, then install the lock file and editable project with that venv's pip. Run commands from the repository root. `init-db` applies Alembic migrations without deleting data. To use the shorthand `python -m app.cli ...`, activate `.venv` first.
 
-Each `run-paper` starts an independent, funded research portfolio with a new run ID. Earlier runs remain queryable via `--run-id`. It does not resume a stopped session. `seed-demo-data` overwrites only the specified CSV (default `data/demo.csv`); do not point it at valuable input data.
+Without `--run-id`, `run-paper` explicitly creates an independent, funded portfolio. Use `run-paper --run-id UUID` with the same CSV, settings, strategy version and quantity to resume a checkpointed run. `--max-bars 3` pauses after three additional bars without forcing liquidation. Recovery replays persisted fills, reconciles explicit positions/cash/equity, restores daily limits and cooldown state, and continues from the next uncommitted bar. Replaying an already finished run does nothing. Pre-audit runs with no checkpoint remain queryable but cannot resume; they fail closed rather than receiving new cash. `seed-demo-data` overwrites only the specified CSV (default `data/demo.csv`); do not point it at valuable input data.
 
 ## Architecture and flow
 
@@ -54,7 +54,7 @@ The kill switch blocks new exposure while permitting exits. Entry limits check t
 | Tables | Purpose and links |
 | --- | --- |
 | `strategies`, `strategy_versions` | Unique strategy/version, config JSON and hash, strategy source/hash, optional Git SHA, creation time |
-| `runs` | Isolated paper account, version FK, risk/execution settings, input hash, final cash/equity/status |
+| `runs` | Isolated paper account, version FK, risk/execution settings, input hash, cash/equity/status, atomic replay checkpoint and revision |
 | `signals` | Run/version FKs, stable signal UUID, action, timestamp, reasons, price and indicator payload |
 | `market_snapshots` | One per signal; OHLCV, bid/ask/spread, indicators, extensible metadata, pre-decision portfolio/risk state |
 | `risk_decisions` | One per signal, APPROVED/REJECTED and reason codes |
@@ -88,6 +88,8 @@ Use `.env` or process environment for configuration. Do not commit credentials. 
 - Gross P&L = exit proceeds minus entry cost. Fees include all entry and exit fills. Net P&L subtracts fees; return percentage divides net P&L by gross entry cost. Holding duration spans first entry to final exit. Portfolio `realized_pnl` is gross; fees are separately tracked.
 - MAE is minimum signed unrealized dollar P&L (at most zero), MFE is maximum (at least zero), sampled at observed closes and execution prices while exposed. They equal `maximum_unrealized_loss/profit`. With partial exits, samples use remaining quantity; these are not intrabar extremes or percentage excursions.
 - Slippage metrics are signed dollar execution shortfall versus each signal price, quantity weighted, including spread and configured impact but excluding fees. Negative means price improvement.
+- Entry slippage = `(buy fill - entry signal price) * filled quantity`; exit slippage = `(exit signal price - sell fill) * filled quantity`. Add the two for total slippage. Market orders have no requested/limit price (`null`); the signal price is the analytical reference, not a promised execution price. Slippage is already included in gross P&L through actual fills and must not be subtracted again.
+- Paper fees = `filled quantity * fee_per_share` for **each unique fill**, on both buys and sells. The default is 0.005 per share. Zero fills means zero fees. The same fee appears in cash accounting, trade summaries and metrics as linked views of one charge, not separate deductions. No minimum commission, taxes or regulatory fees are modeled.
 - Monetary values use double precision for simulation and reconciliation tolerance `1e-8`; this is not broker-grade decimal settlement. Prices are not rounded to exchange tick sizes.
 - Database events are authoritative committed history. `logs/events.jsonl` is diagnostic and may contain attempted events from a rolled-back bar. Runs are single-process and independent; do not share a portfolio across workers.
 
@@ -96,3 +98,11 @@ Use `.env` or process environment for configuration. Do not commit credentials. 
 The placeholder intentionally contains no SDK client, endpoint, authentication or order submission implementation. A future adapter should use the official `webull-openapi-python-sdk` and verify Sandbox-only endpoints and account selection using [Webull's official SDK and environment documentation](https://developer.webull.com/apis/docs/sdk/) and [getting-started guide](https://developer.webull.com/apis/docs/getting-started/), consulted 2026-09-11. Do not substitute an unofficial Webull API wrapper.
 
 Before adding that adapter, implement and test asynchronous broker events, idempotency/reconciliation, order persistence/recovery, decimal/tick rules, trading-session/feed validation and explicit Sandbox account validation. No Sandbox connection or production trading is enabled by this project.
+
+## Phase 1 recovery and duplicate boundary
+
+Paper terminal IOC results now have stable order/fill IDs. Identical signal, terminal order-result or fill replays are no-ops; reused IDs with changed payloads fail explicitly. Signals also have a unique semantic decision key per run/version/symbol/time/source, so regenerating a UUID does not create a second decision. Fill IDs are primary keys. Multi-fill results are deduplicated and validated before accounting; filled quantity, per-fill fees and available position/cash must reconcile. The filled-entry-order limit counts orders, not component fills.
+
+All result processing must run inside the caller's database transaction, as the runner does. On any exception discard the in-memory portfolio and reload the committed checkpoint. A revision check prevents a stale runner from committing the same bar. This is a local paper replay boundary, not a live broker event ingestion/reconciliation system. Broker streaming and partial-to-final asynchronous transitions remain out of scope.
+
+See `PHASE1_AUDIT.md` and `data/phase1-original-audit.json` for the independent Decimal audit of the original results, full IDs, signal categories and price-by-price excursion calculations. The existing diagnostic verifier remains available as `python -m scripts.verify_lifecycle`.

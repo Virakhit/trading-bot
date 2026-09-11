@@ -38,10 +38,14 @@ class Run(Record, Base):
     status: Mapped[str] = mapped_column(String(30), default="RUNNING")
     cash: Mapped[float] = mapped_column(Float)
     equity: Mapped[float] = mapped_column(Float)
+    checkpoint: Mapped[dict | None] = mapped_column(JSON)
+    revision: Mapped[int] = mapped_column(Integer, server_default="0")
 
 
 class SignalRow(Record, Base):
     __tablename__ = "signals"
+    __table_args__ = (UniqueConstraint("run_id", "decision_key", name="uq_signal_decision"),)
+    decision_key: Mapped[str | None] = mapped_column(String(64))
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"))
     version_id: Mapped[str] = mapped_column(ForeignKey("strategy_versions.id"))
     symbol: Mapped[str] = mapped_column(String(32))

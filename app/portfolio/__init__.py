@@ -25,6 +25,7 @@ class Portfolio:
     current_day: object = None
     consecutive_losses: int = 0
     cooldown_until: datetime | None = None
+    applied_fills: dict[str, tuple] = field(default_factory=dict, repr=False)
 
     @property
     def equity(self) -> float:
@@ -41,6 +42,11 @@ class Portfolio:
             self.trades_today = 0
 
     def apply(self, symbol: str, side: str, fill: Fill) -> float:
+        receipt = (symbol, side, fill.quantity, fill.price, fill.fee, fill.timestamp.isoformat())
+        if fill.fill_id in self.applied_fills:
+            if self.applied_fills[fill.fill_id] != receipt:
+                raise ValueError("FILL_ID_CONFLICT")
+            return 0.0
         position = self.positions.setdefault(symbol, Position())
         gross = 0.0
         if side == "BUY":
@@ -63,4 +69,5 @@ class Portfolio:
             raise ValueError("INVALID_SIDE")
         position.mark = fill.price
         self.fees += fill.fee
+        self.applied_fills[fill.fill_id] = receipt
         return gross

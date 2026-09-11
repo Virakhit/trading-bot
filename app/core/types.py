@@ -53,6 +53,7 @@ class Signal(Model):
 
 
 class OrderRequest(Model):
+    order_id: str = Field(default_factory=uid)
     signal_id: str
     symbol: str
     side: Literal["BUY", "SELL"]
@@ -68,6 +69,7 @@ class OrderRequest(Model):
 
 
 class Fill(Model):
+    fill_id: str = Field(default_factory=uid)
     quantity: int = Field(gt=0)
     price: float = Field(gt=0)
     fee: float = Field(ge=0)

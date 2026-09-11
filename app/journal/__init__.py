@@ -17,7 +17,7 @@ def digest(value: object) -> str:
 
 
 def register_strategy(session: Session, strategy: Strategy) -> StrategyVersion:
-    config = strategy.config()
+    config = json.loads(json.dumps(strategy.config(), allow_nan=False))
     config_hash = digest(config)
     code_hash = digest(inspect.getsource(type(strategy)))
     existing = session.scalar(select(StrategyVersion).where(StrategyVersion.strategy_id == strategy.strategy_id, StrategyVersion.version == strategy.version))

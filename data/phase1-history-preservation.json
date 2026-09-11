@@ -1,0 +1,19 @@
+{
+  "verified": true,
+  "unchanged_historical_tables": [
+    "strategies",
+    "strategy_versions",
+    "runs",
+    "daily_metrics",
+    "positions",
+    "signals",
+    "market_snapshots",
+    "orders",
+    "risk_decisions",
+    "system_events",
+    "trades",
+    "fills",
+    "trade_metrics"
+  ],
+  "schema_change": "0002 to 0003; no existing values rewritten"
+}
