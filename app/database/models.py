@@ -1,11 +1,24 @@
 from datetime import datetime, timezone
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from decimal import Decimal
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, TypeDecorator, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from app.core.types import uid
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class ExactDecimal(TypeDecorator):
+    """Lossless decimal text storage; conversion never passes through binary float."""
+    impl = String(80)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return None if value is None else str(value)
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else Decimal(value)
 
 
 class Record:
@@ -128,3 +141,69 @@ class SystemEvent(Record, Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     event_type: Mapped[str] = mapped_column(String(60))
     payload: Mapped[dict] = mapped_column(JSON)
+
+
+class BrokerAccount(Record, Base):
+    __tablename__ = "broker_accounts"
+    __table_args__ = (UniqueConstraint("run_id", "broker", "environment"),)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"))
+    broker: Mapped[str] = mapped_column(String(40))
+    environment: Mapped[str] = mapped_column(String(40))
+    account_ref: Mapped[str] = mapped_column(String(64))
+    cash: Mapped[Decimal] = mapped_column(ExactDecimal())
+
+
+class BrokerPosition(Record, Base):
+    __tablename__ = "broker_positions"
+    __table_args__ = (UniqueConstraint("account_id", "symbol"),)
+    account_id: Mapped[str] = mapped_column(ForeignKey("broker_accounts.id"))
+    symbol: Mapped[str] = mapped_column(String(32))
+    quantity: Mapped[Decimal] = mapped_column(ExactDecimal())
+    average_entry: Mapped[Decimal] = mapped_column(ExactDecimal())
+    realized_pnl: Mapped[Decimal] = mapped_column(ExactDecimal())
+    fees: Mapped[Decimal] = mapped_column(ExactDecimal())
+
+
+class BrokerOrder(Record, Base):
+    __tablename__ = "broker_orders"
+    __table_args__ = (UniqueConstraint("client_order_id"), UniqueConstraint("broker", "environment", "broker_order_id"))
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"))
+    signal_id: Mapped[str] = mapped_column(ForeignKey("signals.id"))
+    risk_decision_id: Mapped[str] = mapped_column(ForeignKey("risk_decisions.id"))
+    account_id: Mapped[str] = mapped_column(ForeignKey("broker_accounts.id"))
+    client_order_id: Mapped[str] = mapped_column(String(64))
+    broker_order_id: Mapped[str | None] = mapped_column(String(100))
+    broker: Mapped[str] = mapped_column(String(40))
+    environment: Mapped[str] = mapped_column(String(40))
+    symbol: Mapped[str] = mapped_column(String(32))
+    side: Mapped[str] = mapped_column(String(8))
+    order_type: Mapped[str] = mapped_column(String(16))
+    quantity: Mapped[Decimal] = mapped_column(ExactDecimal())
+    limit_price: Mapped[Decimal | None] = mapped_column(ExactDecimal())
+    state: Mapped[str] = mapped_column(String(30))
+    filled_quantity: Mapped[Decimal] = mapped_column(ExactDecimal())
+    quote_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict] = mapped_column(JSON)
+
+
+class BrokerEventRow(Record, Base):
+    __tablename__ = "broker_events"
+    order_id: Mapped[str] = mapped_column(ForeignKey("broker_orders.id"))
+    broker_event_id: Mapped[str] = mapped_column(String(100), unique=True)
+    state: Mapped[str] = mapped_column(String(30))
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(String(40))
+    reason: Mapped[str | None] = mapped_column(String(300))
+    disposition: Mapped[str] = mapped_column(String(30))
+    payload_hash: Mapped[str] = mapped_column(String(64))
+
+
+class BrokerFillRow(Record, Base):
+    __tablename__ = "broker_fills"
+    order_id: Mapped[str] = mapped_column(ForeignKey("broker_orders.id"))
+    event_id: Mapped[str] = mapped_column(ForeignKey("broker_events.id"), unique=True)
+    execution_id: Mapped[str] = mapped_column(String(100), unique=True)
+    quantity: Mapped[Decimal] = mapped_column(ExactDecimal())
+    price: Mapped[Decimal] = mapped_column(ExactDecimal())
+    fee: Mapped[Decimal] = mapped_column(ExactDecimal())
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
