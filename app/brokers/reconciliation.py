@@ -32,7 +32,16 @@ def reconcile(session: Session, account: BrokerAccount, broker_orders: list[Brok
     """Detection only: never mutates or deletes history."""
     result: list[ReconciliationItem] = []
     local_orders = {o.id: o for o in session.scalars(select(BrokerOrder).where(BrokerOrder.account_id == account.id))}
-    remote_orders = {o.internal_order_id: o for o in broker_orders}
+    grouped_remote: dict[str, list[BrokerOrderView]] = {}
+    for order in broker_orders:
+        grouped_remote.setdefault(order.internal_order_id, []).append(order)
+    remote_orders: dict[str, BrokerOrderView] = {}
+    for order_id, candidates in grouped_remote.items():
+        first = candidates[0]
+        if any(candidate != first for candidate in candidates[1:]):
+            result.append(ReconciliationItem(Difference.UNKNOWN, "order_duplicate", order_id, None,
+                                             f"{len(candidates)} conflicting remote records"))
+        remote_orders[order_id] = first
     for order_id in sorted(local_orders.keys() | remote_orders.keys()):
         local, remote = local_orders.get(order_id), remote_orders.get(order_id)
         if local is None:

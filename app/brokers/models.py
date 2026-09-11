@@ -25,7 +25,7 @@ TERMINAL_STATES = frozenset({OrderState.FILLED, OrderState.CANCELLED, OrderState
 LEGAL_TRANSITIONS = {
     # Direct fill transitions recover a broker event that outran local submit persistence.
     OrderState.CREATED: {OrderState.SUBMITTING, OrderState.ACKNOWLEDGED, OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.CANCELLED, OrderState.REJECTED, OrderState.UNKNOWN},
-    OrderState.SUBMITTING: {OrderState.SUBMITTED, OrderState.ACKNOWLEDGED, OrderState.REJECTED, OrderState.UNKNOWN},
+    OrderState.SUBMITTING: {OrderState.SUBMITTED, OrderState.ACKNOWLEDGED, OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.REJECTED, OrderState.UNKNOWN},
     OrderState.SUBMITTED: {OrderState.ACKNOWLEDGED, OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.REJECTED, OrderState.CANCEL_PENDING, OrderState.UNKNOWN},
     OrderState.ACKNOWLEDGED: {OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.CANCEL_PENDING, OrderState.CANCELLED, OrderState.REJECTED, OrderState.EXPIRED, OrderState.UNKNOWN},
     OrderState.PARTIALLY_FILLED: {OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.CANCEL_PENDING, OrderState.CANCELLED, OrderState.EXPIRED, OrderState.UNKNOWN},
@@ -141,6 +141,11 @@ class BrokerOrderView(ExactModel):
         return money(value)
 
 
+class BrokerOrderHistoryPage(ExactModel):
+    orders: list[BrokerOrderView]
+    next_cursor: str | None = None
+
+
 class AccountState(ExactModel):
     account_ref: str
     environment: str
@@ -164,6 +169,8 @@ class Broker(Protocol):
     async def cancel_order(self, internal_order_id: str) -> BrokerEvent: ...
     async def query_order(self, internal_order_id: str) -> BrokerOrderView | None: ...
     async def query_open_orders(self) -> list[BrokerOrderView]: ...
+    async def query_order_history(self, *, start_time: datetime, end_time: datetime, cursor: str | None = None,
+                                  limit: int = 100) -> BrokerOrderHistoryPage: ...
     async def query_fills(self) -> list[BrokerEvent]: ...
     async def query_positions(self) -> dict[str, Decimal]: ...
     async def query_account_state(self) -> AccountState: ...

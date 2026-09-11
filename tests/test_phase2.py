@@ -9,8 +9,9 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from app.brokers.errors import (BrokerAuthenticationError, DuplicateBrokerEvent, InvalidOrderTransition,
-                                OrderRejected, StaleMarketData, UnsafeEnvironmentError, UnsupportedBrokerFeature)
+from app.brokers.errors import (BrokerAuthenticationError, BrokerEventConsistencyError, DuplicateBrokerEvent,
+                                InvalidOrderTransition, OrderRejected, StaleMarketData, SubmissionOutcomeUnknown,
+                                UnsafeEnvironmentError, UnsupportedBrokerFeature)
 from app.brokers.mock import MockBroker
 from app.brokers.models import (AccountState, BrokerEvent, BrokerFill, BrokerOrderIntent, BrokerOrderView,
                                 InstrumentRules, OrderState, TERMINAL_STATES)
@@ -225,7 +226,9 @@ def test_async_reconciliation_match(engine):
         broker.orders[order_id] = broker.orders[order_id].model_copy(update={"state": OrderState.FILLED, "filled_quantity": Decimal("5")})
         broker.cash = Decimal("9500")
         service.apply_event(fill)
-        kinds = {item.kind for item in arun(service.reconcile())}
+        stamp = bar().timestamp
+        kinds = {item.kind for item in arun(service.reconcile(history_start=stamp - timedelta(days=1),
+                                                               history_end=stamp + timedelta(days=1)))}
         assert kinds == {Difference.MATCH}
 
 
@@ -243,17 +246,19 @@ def test_decimal_rules_and_stale_quote_are_explicit():
                           quote_age_limit_seconds="1")
 
 
-<<<<<<< HEAD
-def test_webull_config_masks_secrets_and_rejects_non_sandbox():
-=======
-def test_webull_config_masks_secrets_and_rejects_production():
->>>>>>> 750ac47c39b4ec7e8da90189fe27046c249e74e9
+def test_webull_config_masks_secrets_and_rejects_non_test():
     config = WebullSandboxConfig(app_key="secret-key", app_secret="secret-value", account_id="personal-account")
     diagnostics = str(config.diagnostics())
     assert "secret-key" not in diagnostics and "secret-value" not in diagnostics and "personal-account" not in diagnostics
-    assert config.endpoint == "api.sandbox.webull.com" and len(config.account_ref) == 64
+    assert config.region == "th" and config.environment == "test"
+    assert config.endpoint == "th-api.uat.webullbroker.com"
+    assert config.events_endpoint == "th-events-api.uat.webullbroker.com" and len(config.account_ref) == 64
     with pytest.raises((UnsafeEnvironmentError, ValidationError)):
-        WebullSandboxConfig(app_key="x", app_secret="y", account_id="z", endpoint="not-sandbox.invalid")
+        WebullSandboxConfig(app_key="x", app_secret="y", account_id="z", endpoint="not-test.invalid")
+    with pytest.raises(ValidationError):
+        WebullSandboxConfig(app_key="x", app_secret="y", account_id="z", region="us")
+    with pytest.raises(ValidationError):
+        WebullSandboxConfig(app_key="x", app_secret="y", account_id="z", environment="production")
     with pytest.raises((BrokerAuthenticationError, ValidationError)):
         WebullSandboxConfig(app_key="", app_secret="y", account_id="z")
     with pytest.raises(UnsupportedBrokerFeature):
@@ -310,3 +315,123 @@ def test_final_fill_transaction_rollback_then_recovery(engine):
     with Session(engine) as session:
         assert session.get(BrokerOrder, order_id).filled_quantity == 5
         assert session.scalar(select(BrokerPosition)).quantity == 5
+
+
+
+def test_submitting_can_receive_partial_or_full_fill_and_late_ack(engine):
+    _, account_id, partial_id, _ = setup_order(engine)
+    with Session(engine) as session, session.begin():
+        service = service_for(session, account_id)
+        order = session.get(BrokerOrder, partial_id)
+        service.transition(order, OrderState.SUBMITTING)
+        service.apply_event(event(partial_id, OrderState.PARTIALLY_FILLED, "submit-partial", quantity="2"))
+        assert order.state == "PARTIALLY_FILLED" and order.filled_quantity == 2
+    _, account2, full_id, _ = setup_order(engine)
+    with Session(engine) as session, session.begin():
+        service = service_for(session, account2)
+        order = session.get(BrokerOrder, full_id)
+        service.transition(order, OrderState.SUBMITTING)
+        service.apply_event(event(full_id, OrderState.FILLED, "submit-full", quantity="5"))
+        late = service.apply_event(event(full_id, OrderState.ACKNOWLEDGED, "submit-late-ack"))
+        assert order.state == "FILLED"
+        assert late.disposition == "OUT_OF_ORDER_IGNORED"
+        assert session.get(BrokerAccount, account2).cash == Decimal("9499.99")
+
+
+def test_cancel_fill_race_and_cancelled_late_fill_policy(engine):
+    _, account_id, order_id, _ = setup_order(engine)
+    with Session(engine) as session, session.begin():
+        service = service_for(session, account_id)
+        service.apply_event(event(order_id, OrderState.PARTIALLY_FILLED, "race-1", quantity="2"))
+        service.transition(session.get(BrokerOrder, order_id), OrderState.CANCEL_PENDING)
+        service.apply_event(event(order_id, OrderState.PARTIALLY_FILLED, "race-2", quantity="1"))
+        service.apply_event(event(order_id, OrderState.CANCELLED, "race-cancel"))
+        order = session.get(BrokerOrder, order_id)
+        assert order.state == "CANCELLED" and order.filled_quantity == 3
+    _, account2, cancelled_id, _ = setup_order(engine)
+    with Session(engine) as session, session.begin():
+        service = service_for(session, account2)
+        service.apply_event(event(cancelled_id, OrderState.CANCELLED, "cancel-first"))
+        late_partial = service.apply_event(event(cancelled_id, OrderState.PARTIALLY_FILLED, "late-1", quantity="2"))
+        assert late_partial.disposition == "LATE_FILL_AFTER_CANCELLED"
+        assert session.get(BrokerOrder, cancelled_id).state == "CANCELLED"
+        late_final = service.apply_event(event(cancelled_id, OrderState.FILLED, "late-2", quantity="3"))
+        assert late_final.disposition == "CANCELLED_SUPERSEDED_BY_FILL"
+        assert session.get(BrokerOrder, cancelled_id).state == "FILLED"
+        assert session.get(BrokerOrder, cancelled_id).filled_quantity == 5
+
+
+@pytest.mark.parametrize("terminal", [OrderState.REJECTED, OrderState.EXPIRED])
+def test_impossible_terminal_fill_is_safety_critical_and_atomic(engine, terminal):
+    _, account_id, order_id, _ = setup_order(engine)
+    with Session(engine) as session, session.begin():
+        service = service_for(session, account_id)
+        if terminal == OrderState.EXPIRED:
+            service.apply_event(event(order_id, OrderState.ACKNOWLEDGED, "pre-expire-ack"))
+        service.apply_event(event(order_id, terminal, f"terminal-{terminal}"))
+        with pytest.raises(BrokerEventConsistencyError) as exc:
+            service.apply_event(event(order_id, OrderState.FILLED, f"contradiction-{terminal}", quantity="5"))
+        assert exc.value.safety_critical
+    with Session(engine) as session:
+        assert session.get(BrokerAccount, account_id).cash == Decimal("10000")
+        assert session.get(BrokerOrder, order_id).filled_quantity == 0
+        assert session.scalar(select(func.count()).select_from(BrokerPosition).where(BrokerPosition.account_id == account_id)) == 0
+        assert session.scalar(select(func.count()).select_from(BrokerFillRow).where(BrokerFillRow.order_id == order_id)) == 0
+
+
+def test_duplicate_execution_new_event_is_idempotent_but_conflict_fails(engine):
+    _, account_id, order_id, _ = setup_order(engine)
+    first = event(order_id, OrderState.PARTIALLY_FILLED, "same", quantity="2", price="100")
+    replay = first.model_copy(update={"event_id": "event-same-replayed"})
+    conflict_fill = first.fill.model_copy(update={"price": Decimal("101")})
+    conflict = first.model_copy(update={"event_id": "event-same-conflict", "fill": conflict_fill})
+    with Session(engine) as session, session.begin():
+        service = service_for(session, account_id)
+        service.apply_event(first)
+        row = service.apply_event(replay)
+        assert row.disposition == "DUPLICATE_EXECUTION"
+        assert session.scalar(select(func.count()).select_from(BrokerFillRow).where(BrokerFillRow.order_id == order_id)) == 1
+        with pytest.raises(DuplicateBrokerEvent):
+            service.apply_event(conflict)
+        assert session.get(BrokerOrder, order_id).filled_quantity == 2
+        assert session.get(BrokerAccount, account_id).cash == Decimal("9799.99")
+
+
+def test_broker_only_terminal_orders_are_discovered_from_bounded_history(engine):
+    _, account_id, local_order_id, _ = setup_order(engine)
+    broker = MockBroker()
+    stamp = bar().timestamp
+    for state in (OrderState.FILLED, OrderState.CANCELLED, OrderState.REJECTED):
+        remote_id = f"remote-{state}"
+        broker.record_remote_order(BrokerOrderView(internal_order_id=remote_id, client_order_id=f"client-{state}",
+                                                   broker_order_id=f"broker-{state}", state=state, symbol="TEST",
+                                                   side="BUY", quantity="5", filled_quantity="5" if state == OrderState.FILLED else "0"),
+                                   timestamp=stamp)
+    with Session(engine) as session, session.begin():
+        items = arun(service_for(session, account_id, broker).reconcile(history_start=stamp - timedelta(hours=1),
+                                                                        history_end=stamp + timedelta(hours=1),
+                                                                        page_limit=1))
+        missing = {item.object_id for item in items if item.kind == Difference.LOCAL_MISSING and item.object_type == "order"}
+        assert {"remote-FILLED", "remote-CANCELLED", "remote-REJECTED"} <= missing
+        assert any(item.kind == Difference.BROKER_MISSING and item.object_id == local_order_id for item in items)
+
+
+def test_conflicting_duplicate_remote_order_is_reported(engine):
+    _, account_id, order_id, _ = setup_order(engine)
+    with Session(engine) as session:
+        account = session.get(BrokerAccount, account_id)
+        local = session.get(BrokerOrder, order_id)
+        a = BrokerOrderView(internal_order_id=order_id, client_order_id=local.client_order_id, broker_order_id="b1",
+                            state=OrderState.ACKNOWLEDGED, symbol="TEST", side="BUY", quantity="5", filled_quantity="0")
+        b = a.model_copy(update={"state": OrderState.CANCELLED})
+        state = AccountState(account_ref="mock:test", environment="mock", cash="10000", positions={}, timestamp=bar().timestamp)
+        items = reconcile(session, account, [a, b], state)
+        assert any(item.kind == Difference.UNKNOWN and item.object_type == "order_duplicate" for item in items)
+
+
+def test_submitting_order_cannot_be_blindly_retried(engine):
+    _, account_id, order_id, _ = setup_order(engine)
+    with Session(engine) as session, session.begin():
+        session.get(BrokerOrder, order_id).state = OrderState.SUBMITTING
+        with pytest.raises(SubmissionOutcomeUnknown):
+            arun(service_for(session, account_id).submit(order_id))

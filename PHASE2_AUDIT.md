@@ -34,11 +34,7 @@ Strategy and risk modules do not import broker-specific types or raw Webull resp
 - Legacy `WebullExecutionEngine.execute` always raises.
 - `WebullSandboxAdapter` has no SDK client/transport and every method raises `UnsupportedBrokerFeature`.
 - Only `api.sandbox.webull.com` and `events-api.sandbox.webull.com` are accepted by Webull configuration. Any other host or non-`us` region raises safety-critical `UnsafeEnvironmentError`.
-<<<<<<< HEAD
-- No production endpoint appears in the repository. A negative test uses a reserved invalid host to prove that every non-sandbox endpoint is rejected without embedding a production Webull URL in tests.
-=======
-- No production endpoint appears in application code. Its only repository occurrence is a negative test proving rejection.
->>>>>>> 750ac47c39b4ec7e8da90189fe27046c249e74e9
+- No production endpoint appears in the repository; non-test hosts are rejected by exact allow-list validation.
 - No order-submit HTTP library or Webull SDK dependency was added.
 - Credentials are read only from environment variables, never logged or persisted. Diagnostics mask all three values; the account reference is SHA-256 only. `.env` remains ignored.
 - No external Webull API call was executed.

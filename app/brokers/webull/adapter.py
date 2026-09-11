@@ -1,49 +1,32 @@
-from hashlib import sha256
+﻿from hashlib import sha256
+from typing import Literal
 from pydantic import SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.brokers.errors import BrokerAuthenticationError, UnsafeEnvironmentError, UnsupportedBrokerFeature
 
 
-SANDBOX_API_HOST = "api.sandbox.webull.com"
-SANDBOX_EVENTS_HOST = "events-api.sandbox.webull.com"
+TH_TEST_API_HOST = "th-api.uat.webullbroker.com"
+TH_TEST_EVENTS_HOST = "th-events-api.uat.webullbroker.com"
 
 
-class WebullSandboxConfig(BaseSettings):
+class WebullTestConfig(BaseSettings):
+    """Thailand OpenAPI test-only configuration. Production execution is not representable."""
     model_config = SettingsConfigDict(env_file=".env", env_prefix="WEBULL_", extra="ignore", frozen=True)
     app_key: SecretStr
     app_secret: SecretStr
     account_id: SecretStr
-    region: str = "us"
-    endpoint: str = SANDBOX_API_HOST
-    events_endpoint: str = SANDBOX_EVENTS_HOST
+    broker: Literal["webull"] = "webull"
+    region: Literal["th"] = "th"
+    environment: Literal["test"] = "test"
+    endpoint: Literal[TH_TEST_API_HOST] = TH_TEST_API_HOST
+    events_endpoint: Literal[TH_TEST_EVENTS_HOST] = TH_TEST_EVENTS_HOST
 
     @field_validator("app_key", "app_secret", "account_id")
     @classmethod
     def nonempty_secret(cls, value: SecretStr):
         raw = value.get_secret_value().strip()
         if not raw or raw.startswith("replace-"):
-            raise BrokerAuthenticationError("Webull sandbox credentials are required")
-        return value
-
-    @field_validator("region")
-    @classmethod
-    def official_region(cls, value: str):
-        if value != "us":
-            raise UnsafeEnvironmentError("Only the documented US sandbox region is accepted")
-        return value
-
-    @field_validator("endpoint")
-    @classmethod
-    def sandbox_only(cls, value: str):
-        if value != SANDBOX_API_HOST:
-            raise UnsafeEnvironmentError("Only the exact Webull sandbox API host is accepted")
-        return value
-
-    @field_validator("events_endpoint")
-    @classmethod
-    def sandbox_events_only(cls, value: str):
-        if value != SANDBOX_EVENTS_HOST:
-            raise UnsafeEnvironmentError("Only the exact Webull sandbox events host is accepted")
+            raise BrokerAuthenticationError("Webull Thailand test credentials are required")
         return value
 
     @property
@@ -51,32 +34,39 @@ class WebullSandboxConfig(BaseSettings):
         return sha256(self.account_id.get_secret_value().encode()).hexdigest()
 
     def diagnostics(self) -> dict[str, str]:
-        return {"region": self.region, "endpoint": self.endpoint, "events_endpoint": self.events_endpoint,
-                "app_key": "********", "app_secret": "********", "account_id": "********", "account_ref": self.account_ref}
+        return {"broker": self.broker, "region": self.region, "environment": self.environment,
+                "endpoint": self.endpoint, "events_endpoint": self.events_endpoint,
+                "app_key": "********", "app_secret": "********", "account_id": "********",
+                "account_ref": self.account_ref}
 
     @classmethod
     def from_env(cls, env_file=".env"):
         try:
             return cls(_env_file=env_file)
         except ValidationError as exc:
-            raise BrokerAuthenticationError("Valid Webull sandbox credentials are required") from exc
+            raise BrokerAuthenticationError("Valid Webull Thailand test credentials/configuration are required") from exc
+
+
+# Backward-compatible import name; semantics are now the official Thailand Test environment.
+WebullSandboxConfig = WebullTestConfig
 
 
 class WebullSandboxAdapter:
-    """Fail-closed boundary: Phase 2 contains no SDK client or network transport."""
-    def __init__(self, config: WebullSandboxConfig):
+    """Fail-closed Thailand test boundary: Phase 2 contains no SDK client or network transport."""
+    def __init__(self, config: WebullTestConfig):
         self.config = config
 
     async def submit_order(self, intent):
-        raise UnsupportedBrokerFeature("Webull sandbox submission is disabled until an opt-in SDK test proves account isolation")
+        raise UnsupportedBrokerFeature("Webull Thailand test submission remains disabled until an explicit opt-in SDK test")
 
     async def cancel_order(self, internal_order_id):
-        raise UnsupportedBrokerFeature("Webull sandbox cancellation is disabled")
+        raise UnsupportedBrokerFeature("Webull Thailand test cancellation is disabled")
 
     async def query_order(self, internal_order_id):
         raise UnsupportedBrokerFeature("Webull SDK transport is not installed")
 
     async def query_open_orders(self): return await self._disabled()
+    async def query_order_history(self, **kwargs): return await self._disabled()
     async def query_fills(self): return await self._disabled()
     async def query_positions(self): return await self._disabled()
     async def query_account_state(self): return await self._disabled()

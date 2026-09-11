@@ -37,3 +37,12 @@ class StaleMarketData(BrokerError):
 
 class UnsupportedBrokerFeature(BrokerError):
     pass
+
+
+class BrokerEventConsistencyError(BrokerError):
+    safety_critical = True
+
+
+class SubmissionOutcomeUnknown(BrokerError):
+    safety_critical = True
+
