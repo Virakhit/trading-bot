@@ -20,7 +20,8 @@ class ConcurrentRunError(RuntimeError):
 
 
 def run_paper(engine: Engine, settings: Settings, strategy: Strategy, bars: list[Bar], quantity: int = 10,
-              *, run_id: str | None = None, max_bars: int | None = None) -> str:
+              *, run_id: str | None = None, max_bars: int | None = None,
+              execution_engine: PaperExecutionEngine | None = None) -> str:
     """One isolated long-only portfolio per run, one symbol, close-quote execution."""
     if not bars or quantity <= 0 or (max_bars is not None and max_bars <= 0):
         raise ValueError("Bars and positive quantity required")
@@ -28,7 +29,7 @@ def run_paper(engine: Engine, settings: Settings, strategy: Strategy, bars: list
         raise ValueError("Run requires one symbol and strictly increasing timestamps")
     portfolio = Portfolio(settings.initial_cash)
     risk = RiskEngine(settings)
-    execution = PaperExecutionEngine(settings)
+    execution = execution_engine or PaperExecutionEngine(settings)
     with Session(engine) as session, session.begin():
         version = register_strategy(session, strategy)
         run_settings = settings.model_dump(exclude={"database_url"})

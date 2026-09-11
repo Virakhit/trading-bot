@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="forbid", allow_inf_nan=False)
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", allow_inf_nan=False)
     mode: Literal["paper"] = "paper"
     database_url: str = "sqlite:///data/research.db"
     initial_cash: float = Field(10000, gt=0, allow_inf_nan=False)

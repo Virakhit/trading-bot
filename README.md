@@ -1,6 +1,6 @@
 # Deterministic paper trading research
 
-Python 3.12 local, long-only stock simulation. There is no network trading client, live execution route, AI, LLM, or Hermes integration. `MODE` accepts only `paper`; `WebullExecutionEngine.execute()` always raises.
+Python 3.12 local, long-only stock research. Phase 1 is the deterministic simulator. Phase 2 adds a persisted asynchronous mock-broker lifecycle. There is no live execution route, AI, LLM, or Hermes integration. `MODE` accepts only `paper`; both Webull execution classes fail closed.
 
 ## Quick start (PowerShell)
 
@@ -18,6 +18,7 @@ Copy-Item .env.example .env
 .venv\Scripts\python.exe -m app.cli performance
 .venv\Scripts\python.exe -m scripts.verify_lifecycle
 .venv\Scripts\python.exe -m pytest -q
+.venv\Scripts\python.exe -m pytest tests/test_phase2.py -q
 ```
 
 Alternatively create a Python 3.12 venv using `py -3.12 -m venv .venv`, then install the lock file and editable project with that venv's pip. Run commands from the repository root. `init-db` applies Alembic migrations without deleting data. To use the shorthand `python -m app.cli ...`, activate `.venv` first.
@@ -43,7 +44,9 @@ flowchart LR
     Metrics --> Journal
 ```
 
-`MarketDataProvider`, `Strategy`, and `ExecutionEngine` are typed protocols. Strategies receive only a historical prefix and current position quantity, and return a validated signal. They have no execution dependency. A synchronous loop is sufficient for local CSV replay; an async transport belongs in a future streaming adapter.
+`MarketDataProvider`, `Strategy`, and `ExecutionEngine` are typed protocols. Strategies receive only a historical prefix and current position quantity, and return a validated signal. They have no broker dependency. `run_paper(..., execution_engine=...)` supports dependency injection and defaults to the original local engine.
+
+The separate Phase 2 `Broker` protocol exposes asynchronous submit/cancel, order, open-order, fill, position and account queries, restart recovery and reconciliation. The deterministic mock broker requires no network. An order intent is persisted as `CREATED` before submission; broker events then move it through `SUBMITTING`, `SUBMITTED`, `ACKNOWLEDGED`, `PARTIALLY_FILLED`, `FILLED`, `CANCEL_PENDING`, `CANCELLED`, `REJECTED`, `EXPIRED`, or `UNKNOWN`. Illegal transitions fail explicitly. Late status events are retained as `OUT_OF_ORDER_IGNORED` and do not regress state.
 
 The runner captures every strategy evaluation, including warmup HOLDs, then a structured risk decision. HOLD is retained with `NO_ACTION`. Protective exits create separate risk-owned signals; the original strategy signal remains recorded with `PROTECTIVE_EXIT_PENDING`. Stop loss and take profit take precedence over strategy orders. Every bar commits signals, risk decisions, orders, fills, positions, trades, metrics and database events atomically. On failure, that bar rolls back and a separate `SYSTEM_ERROR` marks the run FAILED; prior bars remain committed.
 
@@ -65,6 +68,9 @@ The kill switch blocks new exposure while permitting exits. Entry limits check t
 | `trade_metrics` | One immutable result per closed trade |
 | `daily_metrics` | Latest daily equity, cash, gross realized P&L, fees, unrealized P&L and daily change |
 | `system_events` | Structured transitions with run/signal links and related IDs in payload |
+| `broker_accounts`, `broker_positions` | Safe account reference and exact cash, quantity, basis, P&L and fee state |
+| `broker_orders` | Internal/client/broker IDs, approved-risk link, exact intent, lifecycle state and filled quantity |
+| `broker_events`, `broker_fills` | Normalized idempotent events and exact executions that drive accounting |
 
 Follow `trade.entry_signal_id → market_snapshots/risk_decisions → orders → fills`, and the equivalent exit path. Fills reference the same trade and explicit position. Scaling and partial exits retain all fill links even though `exit_signal_id` denotes the latest exit. `POSITION_*` events preserve changing quantities and cost basis. `scripts.verify_lifecycle` independently checks these links and reconciles cash/equity and closed net P&L from fills.
 
@@ -90,14 +96,26 @@ Use `.env` or process environment for configuration. Do not commit credentials. 
 - Slippage metrics are signed dollar execution shortfall versus each signal price, quantity weighted, including spread and configured impact but excluding fees. Negative means price improvement.
 - Entry slippage = `(buy fill - entry signal price) * filled quantity`; exit slippage = `(exit signal price - sell fill) * filled quantity`. Add the two for total slippage. Market orders have no requested/limit price (`null`); the signal price is the analytical reference, not a promised execution price. Slippage is already included in gross P&L through actual fills and must not be subtracted again.
 - Paper fees = `filled quantity * fee_per_share` for **each unique fill**, on both buys and sells. The default is 0.005 per share. Zero fills means zero fees. The same fee appears in cash accounting, trade summaries and metrics as linked views of one charge, not separate deductions. No minimum commission, taxes or regulatory fees are modeled.
-- Monetary values use double precision for simulation and reconciliation tolerance `1e-8`; this is not broker-grade decimal settlement. Prices are not rounded to exchange tick sizes.
+- Phase 1 values remain double precision to preserve its audited result. Phase 2 broker/accounting boundaries parse finite `Decimal` values and persist canonical decimal text without binary-float conversion. Values are never silently rounded. Optional price/quantity increments are validated exactly only when verified instrument metadata is supplied; no Webull tick or quantity rule is invented.
 - Database events are authoritative committed history. `logs/events.jsonl` is diagnostic and may contain attempted events from a rolled-back bar. Runs are single-process and independent; do not share a portfolio across workers.
 
 ## Webull Sandbox boundary
 
-The placeholder intentionally contains no SDK client, endpoint, authentication or order submission implementation. A future adapter should use the official `webull-openapi-python-sdk` and verify Sandbox-only endpoints and account selection using [Webull's official SDK and environment documentation](https://developer.webull.com/apis/docs/sdk/) and [getting-started guide](https://developer.webull.com/apis/docs/getting-started/), consulted 2026-09-11. Do not substitute an unofficial Webull API wrapper.
+Official US OpenAPI documentation identifies `api.sandbox.webull.com` and `events-api.sandbox.webull.com` as test hosts, describes Sandbox Trading API applications/accounts, uses client-generated order IDs, and documents asynchronous order events. Webull Thailand-specific OpenAPI support was not established from official documentation, so no Thailand capability is claimed.
 
-Before adding that adapter, implement and test asynchronous broker events, idempotency/reconciliation, order persistence/recovery, decimal/tick rules, trading-session/feed validation and explicit Sandbox account validation. No Sandbox connection or production trading is enabled by this project.
+`WebullSandboxConfig` accepts only region `us` and those exact sandbox hosts. Credentials come only from `WEBULL_APP_KEY`, `WEBULL_APP_SECRET`, and `WEBULL_ACCOUNT_ID`; diagnostics mask them and only a SHA-256 account reference may be stored. `.env` remains ignored and `.env.example` contains placeholders. Any other endpoint fails with `UnsafeEnvironmentError`.
+
+`WebullSandboxAdapter` deliberately constructs no SDK client or network transport. Every operation raises `UnsupportedBrokerFeature`. No optional external test exists yet because no credentials or positive sandbox account proof were supplied. No external Webull request was executed. Production and live trading are unavailable.
+
+## Phase 2 accounting, recovery and reconciliation
+
+Only unique normalized broker fills mutate Phase 2 cash, positions, weighted basis, realized P&L, and per-fill fees. Submission, acknowledgment, cancellation and rejection do not. Internal order ID is the trace anchor; client order ID, broker order ID, event ID, and execution ID have uniqueness constraints. Exact duplicate events return the stored result; conflicting ID reuse fails.
+
+Each broker event transaction writes the event, fill, cumulative order quantity, cash and position together. A rollback leaves none of them applied. Recovery replays broker events safely. Tests reopen the database in separate Python processes at every nonterminal lifecycle state and around partial/final fills. A submitted order is never retried automatically unless the adapter can prove client-ID idempotency.
+
+Reconciliation compares local orders, execution IDs, positions and cash with adapter state and reports `MATCH`, `LOCAL_MISSING`, `BROKER_MISSING`, `STATUS_MISMATCH`, `QUANTITY_MISMATCH`, `CASH_MISMATCH`, `POSITION_MISMATCH`, or `UNKNOWN`. It never overwrites or deletes history. Instrument/session rules remain explicit inputs; there is no invented exchange calendar or stale-quote threshold.
+
+See [PHASE2_AUDIT.md](PHASE2_AUDIT.md) for evidence and known limits.
 
 ## Phase 1 recovery and duplicate boundary
 
