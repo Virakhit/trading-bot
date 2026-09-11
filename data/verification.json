@@ -1,0 +1,61 @@
+{
+  "verified": true,
+  "run_id": "4e068832-ca98-4a8d-aefe-97ad15b6a180",
+  "status": "COMPLETED",
+  "signals": 11,
+  "rejected_signals": 7,
+  "cash": 9988.598,
+  "equity": 9988.598,
+  "closed_trades": [
+    {
+      "trade_id": "79fddc21-2a28-4492-ba8a-c2c38c7daaf5",
+      "version_id": "c6e79ee1-767e-481f-b4c5-df74464d6eeb",
+      "fills": 2,
+      "entry_price": 101.030202,
+      "exit_price": 98.970202,
+      "gross_pnl": -20.600000000000136,
+      "fees": 0.1,
+      "net_pnl": -20.700000000000138,
+      "return_pct": -2.048892270847893,
+      "holding_seconds": 180.0,
+      "mae": -20.600000000000023,
+      "mfe": 19.697979999999973,
+      "maximum_unrealized_loss": -20.600000000000023,
+      "maximum_unrealized_profit": 19.697979999999973,
+      "entry_slippage": 0.30202000000002727,
+      "exit_slippage": 0.29797999999999547,
+      "total_slippage": 0.6000000000000227,
+      "entry_reason": [
+        "MOMENTUM_BUY"
+      ],
+      "exit_reason": [
+        "MOMENTUM_EXIT"
+      ]
+    },
+    {
+      "trade_id": "72af4adf-7e13-42ed-9c00-370ef18b3b02",
+      "version_id": "c6e79ee1-767e-481f-b4c5-df74464d6eeb",
+      "fills": 2,
+      "entry_price": 100.030002,
+      "exit_price": 100.969802,
+      "gross_pnl": 9.398000000000138,
+      "fees": 0.1,
+      "net_pnl": 9.298000000000139,
+      "return_pct": 0.9295211250720699,
+      "holding_seconds": 180.0,
+      "mae": -0.3000199999999609,
+      "mfe": 39.69998000000004,
+      "maximum_unrealized_loss": -0.3000199999999609,
+      "maximum_unrealized_profit": 39.69998000000004,
+      "entry_slippage": 0.3000199999999609,
+      "exit_slippage": 0.30197999999998615,
+      "total_slippage": 0.601999999999947,
+      "entry_reason": [
+        "MOMENTUM_BUY"
+      ],
+      "exit_reason": [
+        "MOMENTUM_EXIT"
+      ]
+    }
+  ]
+}

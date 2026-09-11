@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deterministic-paper-research"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["sqlalchemy>=2.0,<3", "alembic>=1.14,<2", "pandas>=2.2,<3", "numpy>=2,<3", "pydantic>=2.10,<3", "pydantic-settings>=2.7,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
