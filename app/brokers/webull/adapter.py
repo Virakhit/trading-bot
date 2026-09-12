@@ -61,8 +61,8 @@ def map_webull_order_status(value):
 
 class WebullTestAdapter:
     """Thin official-SDK adapter; only Thailand TEST hosts are representable."""
-    def __init__(self, config, *, trade_client=None):
-        self.config, self.client, self.attested = config, trade_client, False
+    def __init__(self, config, *, trade_client=None, resolver=None):
+        self.config, self.client, self.attested, self.resolver = config, trade_client, False, resolver
         self.bindings, self.reverse = {}, {}
         self._boundary()
 
@@ -109,12 +109,16 @@ class WebullTestAdapter:
     async def cancel_order(self, internal_order_id):
         if not self.attested: await self.attest_account()
         client_id = self.bindings.get(internal_order_id)
+        if client_id is None and self.resolver:
+            client_id = self.resolver.client_id(internal_order_id)
         if not client_id: raise OrderRejected("Order is not bound")
         data = self._data(await self._call(self._client().order_v3.cancel_order, self._account(), client_id))
         return self._event(data, internal_order_id, client_id, OrderState.CANCEL_PENDING)
 
     async def query_order(self, internal_order_id):
         client_id = self.bindings.get(internal_order_id)
+        if client_id is None and self.resolver:
+            client_id = self.resolver.client_id(internal_order_id)
         return None if not client_id else await self.query_order_by_client_id(client_id)
 
     async def query_order_by_client_id(self, client_id):
@@ -124,14 +128,15 @@ class WebullTestAdapter:
 
     async def query_open_orders(self):
         response = await self._call(self._client().order_v3.list_order_open, self._account())
-        return [self._view(x) for x in self._items(response)]
+        return [self._view(x, allow_unresolved=True) for x in self._items(response)]
 
     async def query_order_history(self, *, start_time, end_time, cursor=None, limit=100):
         if start_time.tzinfo is None or end_time.tzinfo is None or start_time >= end_time or not 1 <= limit <= 500:
             raise ValueError("History requires an aware bounded window and limit 1..500")
         fmt = lambda x: x.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "+0000"
         response = await self._call(self._client().order_v3.list_order_history, self._account(), fmt(start_time), fmt(end_time), cursor)
-        return BrokerOrderHistoryPage(orders=[self._view(x) for x in self._items(response)[:limit]], next_cursor=self._data(response).get("pagination_key"))
+        # Webull owns page sizing; never slice a returned page before following its cursor.
+        return BrokerOrderHistoryPage(orders=[self._view(x, allow_unresolved=True) for x in self._items(response)], next_cursor=self._data(response).get("pagination_key"))
 
     async def query_fills(self):
         response = await self._call(self._client().order_v3.list_order_executions, self._account())
@@ -140,7 +145,9 @@ class WebullTestAdapter:
             client_id = str(x.get("client_order_id", "")); stamp = self._time(x.get("timestamp") or x.get("filled_time"))
             fill = BrokerFill(execution_id=str(x["execution_id"]), quantity=x.get("quantity") or x.get("filled_qty"),
                               price=x.get("price") or x.get("filled_price"), fee=x.get("fee") or x.get("actual_commission") or 0, timestamp=stamp)
-            result.append(BrokerEvent(event_id=f"webull:execution:{fill.execution_id}", internal_order_id=self.reverse.get(client_id, client_id),
+            resolved = self.reverse.get(client_id) or (self.resolver.resolve(client_id) if self.resolver else None)
+            result.append(BrokerEvent(event_id=f"webull:execution:{fill.execution_id}",
+                                      internal_order_id=resolved or "unmapped:" + client_id,
                                       broker_order_id=x.get("order_id"), state=OrderState.PARTIALLY_FILLED, timestamp=stamp, source="webull-rest", fill=fill))
         return result
 
@@ -158,9 +165,13 @@ class WebullTestAdapter:
     async def recover(self): return await self.query_fills()
     def _account(self): return self.config.account_id.get_secret_value()
 
-    def _view(self, x, fallback=""):
+    def _view(self, x, fallback="", allow_unresolved=False):
         client = str(x.get("client_order_id") or fallback)
-        return BrokerOrderView(internal_order_id=self.reverse.get(client, client), client_order_id=client,
+        resolved = self.reverse.get(client) or (self.resolver.resolve(client) if self.resolver else None)
+        if resolved is None:
+            if not allow_unresolved: raise LookupError(f"LOCAL_MISSING client_order_id={client}")
+            resolved = "unmapped:" + client
+        return BrokerOrderView(internal_order_id=resolved, client_order_id=client,
             broker_order_id=str(x["order_id"]) if x.get("order_id") is not None else None,
             state=map_webull_order_status(x.get("order_status") or x.get("status")), symbol=str(x.get("symbol", "UNKNOWN")),
             side=str(x.get("side", "BUY")).upper(), quantity=x.get("quantity") or x.get("qty") or 0,

@@ -7,10 +7,11 @@ from app.brokers.webull.adapter import TH_TEST_EVENTS_HOST, map_webull_order_sta
 
 class WebullTestEvents:
     """Translate TEST stream callbacks; callers persist through BrokerExecutionService."""
-    def __init__(self, config, on_event, *, client=None):
+    def __init__(self, config, on_event, *, client=None, resolver=None):
         if config.region != "th" or config.environment != "test" or config.events_endpoint != TH_TEST_EVENTS_HOST:
             raise ValueError("Only Webull Thailand TEST events are permitted")
-        self.config, self.on_event, self.client = config, on_event, client
+        self.config, self.on_event, self.client, self.resolver = config, on_event, client, resolver
+        self.unmapped_events = []
 
     def translate(self, payload):
         client_id = str(payload["client_order_id"])
@@ -22,13 +23,20 @@ class WebullTestEvents:
             fill = BrokerFill(execution_id=execution, quantity=qty, price=payload["filled_price"],
                               fee=payload.get("actual_commission") or 0, timestamp=stamp)
         key = str(payload.get("request_id") or client_id) + ":" + str(payload.get("scene_type"))
-        return BrokerEvent(event_id=str(uuid5(NAMESPACE_URL, key)), internal_order_id=client_id,
+        internal_id = self.resolver.resolve(client_id) if self.resolver else None
+        if internal_id is None:
+            raise LookupError(f"LOCAL_MISSING client_order_id={client_id}")
+        return BrokerEvent(event_id=str(uuid5(NAMESPACE_URL, key)), internal_order_id=internal_id,
                            broker_order_id=payload.get("order_id"),
                            state=map_webull_order_status(payload.get("order_status")), timestamp=stamp,
                            source="webull-events", fill=fill)
 
     def handle(self, event_type, subscribe_type, payload, raw_message=None):
-        self.on_event(self.translate(payload))
+        try:
+            self.on_event(self.translate(payload))
+        except LookupError as exc:
+            # Preserve an auditable broker event without handing an unknown ID to accounting.
+            self.unmapped_events.append({"payload": payload, "error": str(exc)})
 
     def subscribe(self):
         if self.client is None:

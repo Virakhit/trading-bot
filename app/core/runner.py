@@ -218,6 +218,7 @@ def record_execution(session: Session, run_id: str, version_id: str, signal: Sig
                    payload={**order.model_dump(), "reason": result.reason, "execution_hash": result_hash})
     session.add(row)
     session.flush()
+    portfolio.record_order(order.symbol)
     event(session, run_id, bar.timestamp, "ORDER_CREATED", signal.signal_id, order_id=row.id)
     event(session, run_id, bar.timestamp, "ORDER_SUBMITTED", signal.signal_id, order_id=row.id)
     event(session, run_id, bar.timestamp, "ORDER_" + result.status, signal.signal_id, order_id=row.id, reason=result.reason)

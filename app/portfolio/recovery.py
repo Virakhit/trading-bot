@@ -12,7 +12,8 @@ def checkpoint(portfolio: Portfolio, next_index: int, quantity: int) -> dict:
     return {"next_index": next_index, "quantity": quantity,
             "day": str(portfolio.current_day) if portfolio.current_day else None,
             "day_start_equity": portfolio.day_start_equity, "trades_today": portfolio.trades_today,
-            "consecutive_losses": portfolio.consecutive_losses,
+            "consecutive_losses": portfolio.consecutive_losses, "peak_equity": portfolio.peak_equity,
+            "orders_by_symbol": dict(portfolio.orders_by_symbol),
             "cooldown_until": portfolio.cooldown_until.isoformat() if portfolio.cooldown_until else None}
 
 
@@ -40,5 +41,7 @@ def load_portfolio(session: Session, run_id: str) -> Portfolio:
     portfolio.day_start_equity = state["day_start_equity"]
     portfolio.trades_today = state["trades_today"]
     portfolio.consecutive_losses = state["consecutive_losses"]
+    portfolio.peak_equity = state.get("peak_equity", portfolio.equity)
+    portfolio.orders_by_symbol = dict(state.get("orders_by_symbol", {}))
     portfolio.cooldown_until = datetime.fromisoformat(state["cooldown_until"]) if state["cooldown_until"] else None
     return portfolio

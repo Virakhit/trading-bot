@@ -117,16 +117,32 @@ class DurableBrokerExecutor:
         remote = await self.broker.query_order_by_client_id(client_order_id)
         if remote is None:
             return None
+        fills = [event for event in await self.broker.query_fills()
+                 if event.internal_order_id == order.id or event.internal_order_id == client_order_id]
         with Session(self.engine) as session, session.begin():
             command = session.get(BrokerCommand, command_id)
             order = session.get(BrokerOrder, command.order_id)
-            command.status = CommandStatus.RECONCILED
-            command.resolved_at = datetime.now(timezone.utc)
-            command.correlation_id = remote.broker_order_id or remote.client_order_id
+            service = BrokerExecutionService(session, self.broker, session.get(BrokerAccount, command.account_id))
+            for event in fills:
+                if event.internal_order_id != order.id:
+                    event = event.model_copy(update={"internal_order_id": order.id})
+                service.apply_event(event)
+            # A terminal fill state without executions is not sufficient evidence for accounting.
+            if remote.state in {OrderState.PARTIALLY_FILLED, OrderState.FILLED}:
+                if order.filled_quantity < remote.filled_quantity:
+                    command.safe_error_category = "BROKER_FILLED_QUANTITY_NOT_RECONCILED"
+                    return remote
+                if remote.state == OrderState.FILLED and order.filled_quantity != order.quantity:
+                    command.safe_error_category = "BROKER_FILLED_WITHOUT_EXECUTIONS"
+                    return remote
             if remote.broker_order_id and order.broker_order_id is None:
                 order.broker_order_id = remote.broker_order_id
             if OrderState(order.state) != remote.state:
-                BrokerExecutionService(session, self.broker, session.get(BrokerAccount, command.account_id)).transition(order, remote.state)
+                service.transition(order, remote.state)
+            command.status = CommandStatus.RECONCILED
+            command.resolved_at = datetime.now(timezone.utc)
+            command.correlation_id = remote.broker_order_id or remote.client_order_id
+            command.safe_error_category = None
         return remote
 
     def get_command(self, command_id: str) -> BrokerCommand:

@@ -11,9 +11,13 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.core.runner import run_paper
 from app.database import engine_for
-from app.database.models import PositionRow, Trade, TradeMetrics, Run
+from app.database.models import FillRow, OrderRow, PositionRow, SignalRow, Trade, TradeMetrics, Run
 from app.market_data import CSVProvider
 from app.strategies import MomentumStrategy
+from app.ops.controls import ControlStore
+from app.security import scan_repository
+from app.brokers.webull import WebullTestConfig
+from app.database.models import BrokerCommand
 
 
 def seed(path: Path) -> None:
@@ -28,7 +32,8 @@ def seed(path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Deterministic local paper research only")
-    parser.add_argument("command", choices=["init-db", "seed-demo-data", "run-paper", "positions", "trades", "performance"])
+    parser.add_argument("command", choices=["init-db", "seed-demo-data", "run-paper", "paper-run", "positions", "orders", "fills", "trades", "performance",
+                                             "doctor", "status", "commands", "reconcile", "pause", "resume", "kill-switch", "webull-test-status"])
     parser.add_argument("--csv", default="data/demo.csv")
     parser.add_argument("--symbol", default="DEMO")
     parser.add_argument("--quantity", type=int, default=10)
@@ -39,6 +44,29 @@ def main() -> None:
     Path("data").mkdir(exist_ok=True)
     Path("logs").mkdir(exist_ok=True)
     logging.basicConfig(filename="logs/events.jsonl", level=logging.INFO, format="%(message)s")
+    engine = engine_for(settings.database_url)
+    controls = ControlStore(engine)
+    if args.command == "doctor":
+        print(json.dumps({"mode": settings.mode, "execution_backend": settings.execution_backend,
+                          "control": controls.get(), "secret_findings": scan_repository(Path.cwd())}, indent=2))
+        return
+    if args.command == "pause": print(controls.set("PAUSED", "operator")); return
+    if args.command == "resume": print(controls.set("RUNNING", "operator")); return
+    if args.command == "kill-switch": print(controls.set("KILL_SWITCH", "operator")); return
+    if args.command == "webull-test-status":
+        print(json.dumps(WebullTestConfig.from_env().diagnostics(), indent=2)); return
+    if args.command == "status":
+        with Session(engine) as session:
+            run = session.scalar(select(Run).order_by(Run.created_at.desc()))
+            print(json.dumps({"control": controls.get(), "run_id": run.id if run else None,
+                              "status": run.status if run else None}, indent=2))
+        return
+    if args.command == "commands":
+        with Session(engine) as session:
+            print(json.dumps([{"id": c.id, "order_id": c.order_id, "status": c.status} for c in session.scalars(select(BrokerCommand))], indent=2))
+        return
+    if args.command == "reconcile":
+        print(json.dumps({"status": "REQUESTED", "message": "Run a configured broker reconciliation worker"}, indent=2)); return
     if args.command == "init-db":
         config = Config("alembic.ini")
         config.attributes["database_url"] = settings.database_url
@@ -48,8 +76,7 @@ def main() -> None:
         seed(Path(args.csv))
         print(args.csv)
     else:
-        engine = engine_for(settings.database_url)
-        if args.command == "run-paper":
+        if args.command in {"run-paper", "paper-run"}:
             print(run_paper(engine, settings, MomentumStrategy(), CSVProvider(args.csv).historical(args.symbol), args.quantity,
                             run_id=args.run_id, max_bars=args.max_bars))
             return
@@ -60,6 +87,13 @@ def main() -> None:
             if args.command == "positions":
                 result = [{"symbol": p.symbol, "quantity": p.quantity, "average_entry": p.average_entry,
                            "mark": p.mark, "unrealized_pnl": p.unrealized_pnl} for p in session.scalars(select(PositionRow).where(PositionRow.run_id == run.id))]
+            elif args.command == "orders":
+                result = [{"id": o.id, "signal_id": o.signal_id, "status": o.status, "payload": o.payload}
+                          for o in session.scalars(select(OrderRow).join(SignalRow).where(SignalRow.run_id == run.id))]
+            elif args.command == "fills":
+                result = [{"id": f.id, "order_id": f.order_id, "trade_id": f.trade_id,
+                           "quantity": f.quantity, "price": f.price, "fee": f.fee}
+                          for f in session.scalars(select(FillRow).join(Trade).where(Trade.run_id == run.id))]
             elif args.command == "trades":
                 result = [{"id": t.id, "version_id": t.version_id, "status": t.status, **t.payload} for t in session.scalars(select(Trade).where(Trade.run_id == run.id))]
             else:

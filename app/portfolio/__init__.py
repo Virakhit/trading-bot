@@ -26,6 +26,8 @@ class Portfolio:
     consecutive_losses: int = 0
     cooldown_until: datetime | None = None
     applied_fills: dict[str, tuple] = field(default_factory=dict, repr=False)
+    peak_equity: float = 0
+    orders_by_symbol: dict[str, int] = field(default_factory=dict, repr=False)
 
     @property
     def equity(self) -> float:
@@ -39,7 +41,11 @@ class Portfolio:
         if self.current_day != timestamp.date():
             self.current_day = timestamp.date()
             self.day_start_equity = self.equity
+            self.peak_equity = self.equity
             self.trades_today = 0
+
+    def record_order(self, symbol: str) -> None:
+        self.orders_by_symbol[symbol] = self.orders_by_symbol.get(symbol, 0) + 1
 
     def apply(self, symbol: str, side: str, fill: Fill) -> float:
         receipt = (symbol, side, fill.quantity, fill.price, fill.fee, fill.timestamp.isoformat())

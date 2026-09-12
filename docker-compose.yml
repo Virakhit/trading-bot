@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    environment:
+      DATABASE_URL: sqlite:///data/research.db
+      EXECUTION_BACKEND: local-paper
+      AUTOMATED_WEBULL_TEST_ENABLED: "false"
+    volumes:
+      - trading_data:/app/data
+      - trading_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.cli", "doctor"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  trading_data:
+  trading_logs:

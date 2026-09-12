@@ -1,0 +1,33 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      RUN_WEBULL_TH_TEST_INTEGRATION: "0"
+      RUN_WEBULL_TH_TEST_ORDER: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install -r requirements.lock
+      - run: python -m compileall app tests scripts
+      - run: python -m pytest -q
+      - run: python -m app.cli init-db
+      - run: python -m app.cli seed-demo-data
+      - run: python -m app.cli run-paper
+      - run: python -m scripts.verify_lifecycle
+      - run: python -c "from pathlib import Path; from app.security import scan_repository; assert not scan_repository(Path('.'))"
+      - run: |
+          python - <<'PY'
+          from pathlib import Path
+          from alembic import command
+          from alembic.config import Config
+          p = Path('ci-migration.db')
+          c = Config('alembic.ini'); c.attributes['database_url'] = f'sqlite:///{p.resolve()}'
+          command.upgrade(c, 'head')
+          PY
+        shell: bash

@@ -131,6 +131,14 @@ Reconciliation uses an explicit timezone-aware bounded history window plus open-
 
 See [PHASE2_AUDIT.md](PHASE2_AUDIT.md) for evidence and known limits.
 
+## Complete local/test system
+
+The remaining operational surface is intentionally explicit. Use `execution_backend=local-paper` for the deterministic simulator, `mock-broker` for asynchronous no-network broker tests, and `webull-th-test` only with `AUTOMATED_WEBULL_TEST_ENABLED=true` plus verified TEST credentials. There is no `live` or `production` mode.
+
+`python -m app.cli doctor`, `status`, `positions`, `trades`, `fills`, `commands`, `reconcile`, `pause`, `resume`, `kill-switch`, and `webull-test-status` are safe operator commands. `TradingWorker` handles graceful SIGINT/SIGTERM shutdown. Docker defaults to local paper and GitHub Actions never enables broker integrations.
+
+`app.analytics.backtest.replay` evaluates deterministic runs; `app.analytics.walkforward.split_walk_forward` creates chronological train, validation, and out-of-sample segments. See [FINAL_SYSTEM_AUDIT.md](FINAL_SYSTEM_AUDIT.md) for the complete evidence and limits.
+
 ## Phase 1 recovery and duplicate boundary
 
 Paper terminal IOC results now have stable order/fill IDs. Identical signal, terminal order-result or fill replays are no-ops; reused IDs with changed payloads fail explicitly. Signals also have a unique semantic decision key per run/version/symbol/time/source, so regenerating a UUID does not create a second decision. Fill IDs are primary keys. Multi-fill results are deduplicated and validated before accounting; filled quantity, per-fill fees and available position/cash must reconcile. The filled-entry-order limit counts orders, not component fills.

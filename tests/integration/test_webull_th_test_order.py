@@ -1,25 +1,32 @@
 import os
-from datetime import datetime, timezone
-from decimal import Decimal
-from uuid import uuid4
 import pytest
-from app.brokers.models import BrokerOrderIntent
 from app.brokers.webull import WebullTestAdapter, WebullTestConfig
+from app.brokers.commands import DurableBrokerExecutor
 
 pytestmark = pytest.mark.skipif(os.getenv("RUN_WEBULL_TH_TEST_ORDER") != "1", reason="Webull Thailand TEST order contract is separately opt-in")
 
 
-def test_order_contract_is_separately_guarded():
+def test_order_contract_is_separately_guarded(engine):
+    # Keep optional integration collection independent from the unit-test module path.
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parents[1]))
+    from test_phase2 import setup_order, arun
     symbol, price = os.getenv("WEBULL_TEST_ORDER_SYMBOL"), os.getenv("WEBULL_TEST_ORDER_LIMIT_PRICE")
     if not symbol or not price:
         pytest.skip("Set WEBULL_TEST_ORDER_SYMBOL and WEBULL_TEST_ORDER_LIMIT_PRICE")
-    client_id = uuid4().hex
-    intent = BrokerOrderIntent(internal_order_id=client_id, client_order_id=client_id, run_id="integration",
-        signal_id="operator", symbol=symbol, side="BUY", order_type="LIMIT",
-        quantity=Decimal(os.getenv("WEBULL_TEST_ORDER_QUANTITY", "1")), limit_price=Decimal(price),
-        quote_timestamp=datetime.now(timezone.utc), submitted_at=datetime.now(timezone.utc))
     import asyncio
     broker = WebullTestAdapter(WebullTestConfig.from_env())
-    asyncio.run(broker.submit_order(intent))
-    asyncio.run(broker.query_order_by_client_id(client_id))
-    asyncio.run(broker.cancel_order(client_id))
+    # The durable executor is the contract under test; direct SDK submission is not used.
+    _, account, order_id, _ = setup_order(engine)
+    executor = DurableBrokerExecutor(engine, broker, account)
+    command_id = executor.prepare_submit(order_id)
+    try:
+        asyncio.run(executor.dispatch(command_id))
+        asyncio.run(broker.query_order(order_id))
+    finally:
+        try:
+            cancel_id = executor.prepare_cancel(order_id, allow_retry_after_pre_send=True)
+            asyncio.run(executor.dispatch(cancel_id))
+        except Exception:
+            pass

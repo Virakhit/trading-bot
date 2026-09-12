@@ -24,12 +24,15 @@ class RiskEngine:
             return "TAKE_PROFIT_TRIGGERED"
         return None
 
-    def evaluate(self, signal: Signal, quantity: int, bar: Bar, portfolio: Portfolio) -> RiskDecision:
+    def evaluate(self, signal: Signal, quantity: int, bar: Bar, portfolio: Portfolio, *, observed_at=None) -> RiskDecision:
         s = self.settings
         codes: list[str] = []
         position = portfolio.positions.get(signal.symbol, Position())
         if signal.symbol != bar.symbol or signal.timestamp != bar.timestamp:
             codes.append("CONTEXT_MISMATCH")
+        age = max(0, ((observed_at or signal.timestamp) - bar.timestamp).total_seconds())
+        if age > s.max_stale_seconds:
+            codes.append("STALE_DATA")
         if quantity <= 0:
             codes.append("INVALID_QUANTITY")
         if signal.action == "HOLD":
@@ -43,6 +46,15 @@ class RiskEngine:
                 codes.append("KILL_SWITCH")
             price = bar.ask * (1 + s.slippage_bps / 10000)
             exposure = (position.quantity + quantity) * price
+            if quantity * price > s.max_order_notional:
+                codes.append("MAX_ORDER_NOTIONAL")
+            current_exposure = sum(p.quantity * p.mark for p in portfolio.positions.values())
+            if current_exposure + quantity * price > s.max_portfolio_exposure:
+                codes.append("MAX_PORTFOLIO_EXPOSURE")
+            if portfolio.orders_by_symbol.get(signal.symbol, 0) >= s.max_orders_per_symbol_session:
+                codes.append("MAX_ORDERS_PER_SYMBOL_SESSION")
+            if portfolio.peak_equity and portfolio.equity <= portfolio.peak_equity * (1 - s.max_drawdown):
+                codes.append("MAX_DRAWDOWN_KILL_SWITCH")
             if position.quantity + quantity > s.max_position_size:
                 codes.append("MAX_POSITION_SIZE")
             if exposure > portfolio.equity * s.max_position_pct:

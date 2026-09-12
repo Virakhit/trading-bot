@@ -225,3 +225,20 @@ class BrokerCommand(Record, Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     safe_error_category: Mapped[str | None] = mapped_column(String(80))
     correlation_id: Mapped[str | None] = mapped_column(String(160))
+
+
+class OperationalControl(Base):
+    __tablename__ = "operational_controls"
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="RUNNING")
+    reason: Mapped[str | None] = mapped_column(String(300))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class DataQualityEvent(Record, Base):
+    __tablename__ = "data_quality_events"
+    symbol: Mapped[str] = mapped_column(String(32))
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(String(80))
+    code: Mapped[str] = mapped_column(String(80))
+    detail: Mapped[str | None] = mapped_column(String(300))

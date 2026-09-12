@@ -185,7 +185,8 @@ def test_duplicate_execution_and_conflict_remain_safe(engine):
 
 
 def test_events_translate_duplicate_stably_and_gap_recovery():
-    seen = []; stream = WebullTestEvents(adapter().config, seen.append, client=SimpleNamespace())
+    seen = []; resolver = SimpleNamespace(resolve=lambda client_id: "internal-" + client_id)
+    stream = WebullTestEvents(adapter().config, seen.append, client=SimpleNamespace(), resolver=resolver)
     payload = {"request_id": "r", "client_order_id": "c", "order_status": "FILLED", "filled_qty": "1", "filled_price": "10", "filled_time": "2026-01-01T00:00:00+00:00"}
     assert stream.translate(payload).event_id == stream.translate(payload).event_id
     stream.handle(1, 1, payload); assert seen[0].state == OrderState.FILLED
