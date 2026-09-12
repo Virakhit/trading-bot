@@ -6,7 +6,7 @@ Phase 1 deterministic research, Phase 2 broker lifecycle, Phase 3 Webull TEST sa
 
 ## Baseline and financial invariant
 
-The repair started from `c0ff711dfa11c7d2ddd15d5318b273705aeb65b3`, equal to `origin/main`, with a clean tree. It is committed as `c0862f2caa82197f68622f544ba6f7e0221cbb44`. Baseline evidence was compile PASS, 113 passed/2 skipped, Phase 2 29 passed, Phase 3 22 passed, system automation 12 passed, and lifecycle `verified=true`. The Phase 1 invariant remains:
+The repair started from `c0ff711dfa11c7d2ddd15d5318b273705aeb65b3`, equal to `origin/main`, with a clean tree. The final commit SHA is reported with the release. Baseline evidence was compile PASS, 113 passed/2 skipped, Phase 2 29 passed, Phase 3 22 passed, system automation 12 passed, and lifecycle `verified=true`. The Phase 1 invariant remains:
 
 `10000.000 - 2010.602040 + 1999.400040 - 0.200 = 9988.598`
 

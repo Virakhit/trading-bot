@@ -1,7 +1,7 @@
 # Phase 3 audit
 
 - Baseline commit: `c0ff711dfa11c7d2ddd15d5318b273705aeb65b3` (`HEAD == origin/main` before this repair).
-- Final repair commit: `c0862f2caa82197f68622f544ba6f7e0221cbb44`; tree is clean after commit.
+- Final repair commit is the commit containing this audit; its exact SHA is reported with the release and the tree is clean after commit.
 - Phase 3 evidence remains green: 22 tests pass; the complete local suite after the repair is 117 passed, 2 skipped.
 - Phase 1 financial invariant is unchanged: starting cash `10000.000`, gross realized P&L `-11.202`, fees `0.200`, net P&L `-11.402`, ending equity `9988.598`, total slippage `1.202`.
 - Webull SDK is pinned to `webull-openapi-python-sdk==3.0.0`. Writes are structurally restricted to `region=th`, `environment=test`, `th-api.uat.webullbroker.com`, and `th-events-api.uat.webullbroker.com`, with account attestation before writes.
