@@ -19,9 +19,16 @@ class ConcurrentRunError(RuntimeError):
     pass
 
 
+def _checkpoint_with_prefix(portfolio, next_index, quantity, prefix_hash):
+    state = checkpoint(portfolio, next_index, quantity)
+    state["data_prefix_hash"] = prefix_hash
+    return state
+
+
 def run_paper(engine: Engine, settings: Settings, strategy: Strategy, bars: list[Bar], quantity: int = 10,
               *, run_id: str | None = None, max_bars: int | None = None,
-              execution_engine: PaperExecutionEngine | None = None) -> str:
+              execution_engine: PaperExecutionEngine | None = None,
+              allow_appended_data: bool = False) -> str:
     """One isolated long-only portfolio per run, one symbol, close-quote execution."""
     if not bars or quantity <= 0 or (max_bars is not None and max_bars <= 0):
         raise ValueError("Bars and positive quantity required")
@@ -36,15 +43,20 @@ def run_paper(engine: Engine, settings: Settings, strategy: Strategy, bars: list
         data_hash = digest([b.model_dump(mode="json") for b in bars])
         if run_id is None:
             run = Run(version_id=version.id, settings=run_settings, data_hash=data_hash,
-                      cash=portfolio.cash, equity=portfolio.equity, checkpoint=checkpoint(portfolio, 0, quantity))
+                      cash=portfolio.cash, equity=portfolio.equity,
+                      checkpoint=_checkpoint_with_prefix(portfolio, 0, quantity, digest([])))
             session.add(run)
         else:
             run = session.get(Run, run_id)
             if run is None or run.checkpoint is None:
                 raise ValueError("No recovery checkpoint; legacy runs remain read-only")
-            if (run.version_id != version.id or run.settings != run_settings or run.data_hash != data_hash
+            prefix_hash = run.checkpoint.get("data_prefix_hash")
+            compatible_data = run.data_hash == data_hash or (allow_appended_data and
+                prefix_hash is not None and digest([b.model_dump(mode="json") for b in bars[:run.checkpoint["next_index"]]]) == prefix_hash)
+            if (run.version_id != version.id or run.settings != run_settings or not compatible_data
                     or run.checkpoint["quantity"] != quantity):
                 raise ValueError("Resume requires identical strategy, settings, quantity and input data")
+            run.data_hash = data_hash
             portfolio = load_portfolio(session, run_id)
         session.flush()
         run_id, version_id = run.id, version.id
@@ -102,7 +114,9 @@ def run_paper(engine: Engine, settings: Settings, strategy: Strategy, bars: list
                 db_position.unrealized_pnl = position.unrealized_pnl
                 run = session.get(Run, run_id)
                 run.cash, run.equity = portfolio.cash, portfolio.equity
-                run.checkpoint = checkpoint(portfolio, index + 1, quantity)
+                run.checkpoint = _checkpoint_with_prefix(
+                    portfolio, index + 1, quantity,
+                    digest([b.model_dump(mode="json") for b in bars[:index + 1]]))
                 run.status = "PAUSED" if index + 1 < len(bars) else ("OPEN_POSITIONS" if active_trade_id else "COMPLETED")
                 daily = session.scalar(select(DailyMetrics).where(DailyMetrics.run_id == run_id, DailyMetrics.day == str(bar.timestamp.date())))
                 if daily is None:

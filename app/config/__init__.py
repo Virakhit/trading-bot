@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     execution_backend: Literal["local-paper", "mock-broker", "webull-th-test"] = "local-paper"
     automated_webull_test_enabled: bool = False
     session_timezone: str = "Asia/Bangkok"
+    market_exchange: str | None = None
     allowed_session_start: str = "09:30"
     allowed_session_end: str = "16:00"
     max_stale_seconds: int = Field(300, ge=0)

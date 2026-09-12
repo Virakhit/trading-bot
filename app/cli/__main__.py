@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import csv
 import json
 import logging
@@ -11,13 +12,17 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.core.runner import run_paper
 from app.database import engine_for
-from app.database.models import FillRow, OrderRow, PositionRow, SignalRow, Trade, TradeMetrics, Run
+from app.database.models import (BrokerAccount, FillRow, OrderRow, PositionRow, SignalRow, Trade, TradeMetrics,
+                                 Run)
 from app.market_data import CSVProvider
 from app.strategies import MomentumStrategy
 from app.ops.controls import ControlStore
 from app.security import scan_repository
 from app.brokers.webull import WebullTestConfig
 from app.database.models import BrokerCommand
+from app.brokers.webull.adapter import WebullTestAdapter
+from app.brokers.resolver import PersistentOrderResolver
+from app.brokers.service import BrokerExecutionService
 
 
 def seed(path: Path) -> None:
@@ -39,6 +44,7 @@ def main() -> None:
     parser.add_argument("--quantity", type=int, default=10)
     parser.add_argument("--run-id")
     parser.add_argument("--max-bars", type=int, help="Pause after this many additional bars; resume with --run-id and the same CSV")
+    parser.add_argument("--network-check", action="store_true", help="Use the read-only Webull TEST account check")
     args = parser.parse_args()
     settings = Settings()
     Path("data").mkdir(exist_ok=True)
@@ -47,14 +53,41 @@ def main() -> None:
     engine = engine_for(settings.database_url)
     controls = ControlStore(engine)
     if args.command == "doctor":
-        print(json.dumps({"mode": settings.mode, "execution_backend": settings.execution_backend,
-                          "control": controls.get(), "secret_findings": scan_repository(Path.cwd())}, indent=2))
+        findings = scan_repository(Path.cwd())
+        print(json.dumps({"status": "UNSAFE" if findings else "OK", "mode": settings.mode,
+                          "execution_backend": settings.execution_backend, "control": controls.get(),
+                          "secret_findings": findings}, indent=2))
         return
     if args.command == "pause": print(controls.set("PAUSED", "operator")); return
     if args.command == "resume": print(controls.set("RUNNING", "operator")); return
     if args.command == "kill-switch": print(controls.set("KILL_SWITCH", "operator")); return
     if args.command == "webull-test-status":
-        print(json.dumps(WebullTestConfig.from_env().diagnostics(), indent=2)); return
+        try:
+            config = WebullTestConfig.from_env()
+        except Exception:
+            if args.network_check:
+                raise
+            print(json.dumps({"broker": "webull", "region": "th", "environment": "test",
+                              "endpoint": "th-api.uat.webullbroker.com",
+                              "events_endpoint": "th-events-api.uat.webullbroker.com",
+                              "credentials_configured": False, "order_submission": "disabled"}, indent=2))
+            return
+        if not args.network_check:
+            print(json.dumps({**config.diagnostics(), "credentials_configured": True,
+                              "order_submission": "disabled"}, indent=2)); return
+        from app.database.models import BrokerAccount
+        account_id = None
+        with Session(engine) as session:
+            account = session.scalar(select(BrokerAccount).where(BrokerAccount.broker == "webull",
+                                                                  BrokerAccount.environment == "test").order_by(BrokerAccount.created_at.desc()))
+            account_id = account.id if account else None
+        broker = WebullTestAdapter(config)
+        asyncio.run(broker.attest_account())
+        state = asyncio.run(broker.query_account_state())
+        print(json.dumps({**config.diagnostics(), "credentials_configured": True,
+                          "account_attested": True, "account_ref": state.account_ref,
+                          "cash": str(state.cash), "positions": {k: str(v) for k, v in state.positions.items()},
+                          "local_account_id": account_id}, indent=2)); return
     if args.command == "status":
         with Session(engine) as session:
             run = session.scalar(select(Run).order_by(Run.created_at.desc()))
@@ -66,7 +99,28 @@ def main() -> None:
             print(json.dumps([{"id": c.id, "order_id": c.order_id, "status": c.status} for c in session.scalars(select(BrokerCommand))], indent=2))
         return
     if args.command == "reconcile":
-        print(json.dumps({"status": "REQUESTED", "message": "Run a configured broker reconciliation worker"}, indent=2)); return
+        with Session(engine) as session:
+            account = session.scalar(select(BrokerAccount).where(BrokerAccount.broker == "webull",
+                                                                  BrokerAccount.environment == "test").order_by(BrokerAccount.created_at.desc()))
+            if account is None:
+                print(json.dumps({"status": "NOT_CONFIGURED", "message": "No Webull Thailand TEST account is persisted"}, indent=2))
+                return
+            account_id = account.id
+        config = WebullTestConfig.from_env()
+        broker = WebullTestAdapter(config, resolver=PersistentOrderResolver(engine, account_id))
+        asyncio.run(broker.attest_account())
+        async def reconcile_now():
+            with Session(engine) as session:
+                account = session.get(BrokerAccount, account_id)
+                result = await BrokerExecutionService(session, broker, account).reconcile(
+                    history_start=datetime.now(timezone.utc) - timedelta(days=365),
+                    history_end=datetime.now(timezone.utc))
+                return [{"kind": item.kind.value, "object_type": item.object_type,
+                         "object_id": item.object_id, "local": item.local, "broker": item.broker}
+                        for item in result]
+        result = asyncio.run(reconcile_now())
+        print(json.dumps({"status": "MATCH" if all(x["kind"] == "MATCH" for x in result) else "MISMATCH",
+                          "backend": "webull-th-test", "items": result}, indent=2)); return
     if args.command == "init-db":
         config = Config("alembic.ini")
         config.attributes["database_url"] = settings.database_url

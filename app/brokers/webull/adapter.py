@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
@@ -74,9 +75,15 @@ class WebullTestAdapter:
         if self.client is None:
             from webull.core.client import ApiClient
             from webull.trade.trade_client import TradeClient
+            for name in ("webull", "webull.core", "webull.core.client", "webull.core.http"):
+                logger = logging.getLogger(name)
+                logger.disabled = True
+                logger.propagate = False
             api = ApiClient(self.config.app_key.get_secret_value(), self.config.app_secret.get_secret_value(), "th")
             api.add_endpoint("th", TH_TEST_API_HOST)
-            api._stream_logger_set = api._file_logger_set = True
+            # The SDK request logger includes signed headers; keep it disabled so
+            # secrets, signatures, and account identifiers never reach logs.
+            api._stream_logger_set = api._file_logger_set = False
             self.client = TradeClient(api)
         return self.client
 

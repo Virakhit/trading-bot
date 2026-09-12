@@ -1,16 +1,14 @@
 # Phase 3 audit
 
-- Starting/final base HEAD: `77b9b5b795adf86106341d25658d874e9128cde4` (`HEAD == origin/main` at baseline).
-- Final tree: DIRTY by design; changes are present in the working tree and were not committed by this task.
-- Phase 1 remains `10000.000` cash, `-11.202` gross, `0.200` fees, `-11.402` net, `9988.598` equity, `1.202` slippage.
-- Phase 2: 29 tests pass. Phase 3: 22 tests pass.
-- Official SDK: `webull-openapi-python-sdk==3.0.0`; Thailand TEST REST `th-api.uat.webullbroker.com`; Events `th-events-api.uat.webullbroker.com`.
-- Writes require exact account attestation and are structurally limited to `region=th`, `environment=test`, and the two literal UAT hosts.
-- Durable submit/cancel use PREPARED → SENDING → response transaction. Ambiguous outcomes remain UNKNOWN and never blind-retry.
-- UNKNOWN recovery is fill-driven: executions are ingested before terminal state; a FILLED/PARTIALLY_FILLED snapshot without sufficient executions remains unresolved.
-- Client-order resolution is backed by `broker_orders`; stream parsing raises `LOCAL_MISSING` for an unknown client ID.
-- SDK history pages are preserved whole; repeated cursors are rejected by reconciliation.
-- Events are normalized off the callback boundary and accounting remains in `BrokerExecutionService`.
-- Network-free crash, duplicate, partial-fill, late-ACK, cancel-race, pagination, payload-conflict, and restart tests pass.
-- External REST/Events/order calls: NOT TESTED successfully; no TEST credentials were available. A previous placeholder probe returned 401.
-- Production order execution is impossible: no live mode, no production endpoint, no production CLI, and no strategy-to-production path.
+- Baseline commit: `c0ff711dfa11c7d2ddd15d5318b273705aeb65b3` (`HEAD == origin/main` before this repair).
+- Final repair commit: `c0862f2caa82197f68622f544ba6f7e0221cbb44`; tree is clean after commit.
+- Phase 3 evidence remains green: 22 tests pass; the complete local suite after the repair is 117 passed, 2 skipped.
+- Phase 1 financial invariant is unchanged: starting cash `10000.000`, gross realized P&L `-11.202`, fees `0.200`, net P&L `-11.402`, ending equity `9988.598`, total slippage `1.202`.
+- Webull SDK is pinned to `webull-openapi-python-sdk==3.0.0`. Writes are structurally restricted to `region=th`, `environment=test`, `th-api.uat.webullbroker.com`, and `th-events-api.uat.webullbroker.com`, with account attestation before writes.
+- Durable submit/cancel commit `PREPARED` before network transport. Ambiguous outcomes remain `UNKNOWN`; recovery queries by persistent client order ID and applies executions through `BrokerExecutionService` before any status transition. A terminal broker status without executions remains unresolved and never fabricates accounting.
+- REST history preserves complete broker pages and rejects repeated cursors. Event callbacks normalize into a queue, preserve unmapped `LOCAL_MISSING` records, and use the persistent resolver after restart.
+- The repaired automated pipeline is exercised end-to-end with MockBroker: strategy → persisted signal/snapshot/risk → durable submit → partial/final fills → exit → duplicate replay → reconciliation, with exact cash and position accounting.
+- Incremental worker checkpoints are persisted in migration `0009`; worker restart and append-only replay are covered. XNYS session checks cover DST, holidays, and an early close.
+- `reconcile` is now an actual bounded read-only Webull TEST operation when a persisted TEST account and credentials are present. `doctor` reports safe status and the TEST status command does not require credentials for local diagnostics.
+- External read-only REST was attempted against the fixed TEST host and returned HTTP 401 invalid credentials; Events and TEST order were not run. Docker runtime was not run because Docker is unavailable on this host; CI now includes a Docker build step.
+- Production execution remains impossible: no live mode, no production endpoint, no production CLI, no fallback, and `WebullExecutionEngine` fails closed.

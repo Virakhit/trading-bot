@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from app.analytics.walkforward import split_walk_forward
 from app.brokers.commands import CommandStatus, DurableBrokerExecutor
@@ -14,14 +14,18 @@ from app.brokers.webull import WebullTestConfig
 from app.brokers.webull.events import WebullTestEvents
 from app.config import Settings
 from app.market_data import ReplayProvider, validate_bar
-from app.database.models import DataQualityEvent
+from app.database.models import (BrokerAccount, BrokerCommand, BrokerEventRow, BrokerFillRow, BrokerOrder,
+                                  BrokerPosition, DataQualityEvent, MarketCheckpoint, RiskRow, SignalRow, Snapshot,
+                                  StrategyVersion)
 from app.ops.controls import ControlStore
 from app.sessions import SessionCalendar
 from app.automation.orchestrator import AutomatedOrchestrator
 from app.worker import TradingWorker
 from app.strategies import MomentumStrategy
+from app.portfolio import Portfolio, Position
+from app.risk import RiskEngine
 from test_phase2 import arun, event, setup_order
-from test_system import engine, bar, settings
+from test_system import engine, bar, settings, signal
 from app.database.models import BrokerOrder
 
 
@@ -90,6 +94,80 @@ def test_end_to_end_durable_mock_stream_is_idempotent(engine):
         assert row.state == OrderState.FILLED and row.filled_quantity == 5
 
 
+def test_automated_orchestrator_mock_pipeline_replays_async_fills_without_drift(engine):
+    from app.brokers.models import BrokerFill, BrokerEvent
+    from app.brokers.service import BrokerExecutionService
+    settings_ = Settings(_env_file=None, execution_backend="mock-broker",
+                         allowed_session_start="00:00", allowed_session_end="23:59",
+                         fee_per_share=0.1, slippage_bps=0, max_stale_seconds=3600)
+    broker = MockBroker()
+    pipeline = AutomatedOrchestrator(engine, settings_, MomentumStrategy(), broker).broker_pipeline()
+    bars = [bar(100, 0), bar(100, 1), bar(101, 2), bar(99, 3)]
+
+    assert asyncio.run(pipeline.process_snapshot(bars[0])).disposition == "REJECTED"
+    assert asyncio.run(pipeline.process_snapshot(bars[1])).disposition == "REJECTED"
+    entry = asyncio.run(pipeline.process_snapshot(bars[2], quantity=2))
+    assert entry.order_id and entry.command_id
+    entry_broker_id = broker.orders[entry.order_id].broker_order_id
+    entry_events = [
+        BrokerEvent(event_id="entry-fill-1", internal_order_id=entry.order_id, broker_order_id=entry_broker_id,
+                    state=OrderState.PARTIALLY_FILLED, timestamp=bars[2].timestamp, source="mock",
+                    fill=BrokerFill(execution_id="entry-exec-1", quantity=1, price=100, fee=0.1,
+                                    timestamp=bars[2].timestamp)),
+        BrokerEvent(event_id="entry-fill-2", internal_order_id=entry.order_id, broker_order_id=entry_broker_id,
+                    state=OrderState.FILLED, timestamp=bars[2].timestamp, source="mock",
+                    fill=BrokerFill(execution_id="entry-exec-2", quantity=1, price=101, fee=0.1,
+                                    timestamp=bars[2].timestamp)),
+    ]
+    broker.script(entry.order_id, entry_events)
+    for expected in entry_events:
+        received = asyncio.run(broker.next_event(entry.order_id))
+        with Session(engine) as session, session.begin():
+            account = session.get(BrokerAccount, pipeline.account_id)
+            BrokerExecutionService(session, broker, account).apply_event(received)
+            BrokerExecutionService(session, broker, account).apply_event(received)
+
+    exit_step = asyncio.run(pipeline.process_snapshot(bars[3], quantity=2))
+    assert exit_step.order_id and exit_step.order_id != entry.order_id
+    exit_broker_id = broker.orders[exit_step.order_id].broker_order_id
+    exit_events = [
+        BrokerEvent(event_id="exit-fill-1", internal_order_id=exit_step.order_id, broker_order_id=exit_broker_id,
+                    state=OrderState.PARTIALLY_FILLED, timestamp=bars[3].timestamp, source="mock",
+                    fill=BrokerFill(execution_id="exit-exec-1", quantity=1, price=99, fee=0.1,
+                                    timestamp=bars[3].timestamp)),
+        BrokerEvent(event_id="exit-fill-2", internal_order_id=exit_step.order_id, broker_order_id=exit_broker_id,
+                    state=OrderState.FILLED, timestamp=bars[3].timestamp, source="mock",
+                    fill=BrokerFill(execution_id="exit-exec-2", quantity=1, price=98, fee=0.1,
+                                    timestamp=bars[3].timestamp)),
+    ]
+    broker.script(exit_step.order_id, exit_events)
+    for expected in exit_events:
+        received = asyncio.run(broker.next_event(exit_step.order_id))
+        with Session(engine) as session, session.begin():
+            account = session.get(BrokerAccount, pipeline.account_id)
+            BrokerExecutionService(session, broker, account).apply_event(received)
+            BrokerExecutionService(session, broker, account).apply_event(received)
+
+    with Session(engine) as session:
+        account = session.get(BrokerAccount, pipeline.account_id)
+        position = session.scalar(select(BrokerPosition).where(BrokerPosition.account_id == pipeline.account_id,
+                                                               BrokerPosition.symbol == "TEST"))
+        orders = list(session.scalars(select(BrokerOrder).where(BrokerOrder.account_id == pipeline.account_id)
+                                     .order_by(BrokerOrder.created_at)))
+        assert position.quantity == 0 and position.realized_pnl == Decimal("-4") and position.fees == Decimal("0.4")
+        assert account.cash == Decimal("9995.6")
+        assert [order.state for order in orders] == [OrderState.FILLED, OrderState.FILLED]
+        assert all(order.signal_id and order.risk_decision_id and order.client_order_id for order in orders)
+        assert session.scalar(select(func.count()).select_from(BrokerFillRow)) == 4
+        assert session.scalar(select(func.count()).select_from(BrokerEventRow)) == 6
+        assert session.scalar(select(func.count()).select_from(BrokerCommand)) == 2
+        assert session.scalar(select(func.count()).select_from(Snapshot)) == 4
+        version = session.get(StrategyVersion, pipeline.version_id)
+        assert version.config_hash and version.git_sha
+        assert all(session.get(SignalRow, order.signal_id).version_id == version.id for order in orders)
+    assert all(item.kind.name == "MATCH" for item in asyncio.run(pipeline.reconcile_once()))
+
+
 def test_history_page_is_never_sliced_by_adapter_limit():
     from app.brokers.webull.adapter import WebullTestAdapter
     rows = [{"client_order_id": f"c{i}", "order_id": f"b{i}", "order_status": "FILLED", "symbol": "AAPL", "side": "BUY", "quantity": "1", "filled_qty": "1"} for i in range(100)]
@@ -121,6 +199,26 @@ def test_market_quality_replay_and_session_dst():
         cal.state(datetime(2026, 3, 9, 14, 0))
 
 
+def test_xnys_calendar_honors_dst_holidays_and_early_close():
+    cal = SessionCalendar("America/New_York", exchange="XNYS")
+    assert cal.state(datetime(2026, 3, 9, 13, 30, tzinfo=timezone.utc)) == "OPEN"  # 09:30 EDT
+    assert cal.state(datetime(2026, 3, 8, 15, 0, tzinfo=timezone.utc)) == "CLOSED"
+    assert cal.state(datetime(2026, 11, 27, 17, 0, tzinfo=timezone.utc)) == "OPEN"  # 12:00 EST
+    assert cal.state(datetime(2026, 11, 27, 18, 0, tzinfo=timezone.utc)) == "AFTER_HOURS"  # 13:00 EST early close
+
+
+def test_pending_orders_are_reserved_for_buy_and_sell_risk():
+    portfolio = Portfolio(10000, {"TEST": Position(2, 100, 100)})
+    pending_buy = SimpleNamespace(symbol="TEST", side="BUY", quantity=2, filled_quantity=0)
+    buy = RiskEngine(Settings(_env_file=None, max_position_size=3)).evaluate(
+        signal(), 1, bar(), portfolio, pending_orders=[pending_buy])
+    assert "MAX_POSITION_SIZE" in buy.codes
+    pending_sell = SimpleNamespace(symbol="TEST", side="SELL", quantity=2, filled_quantity=0)
+    sell = RiskEngine(Settings(_env_file=None)).evaluate(signal("EXIT"), 1, bar(), portfolio,
+                                                        pending_orders=[pending_sell])
+    assert "PENDING_SELL_OVERSUBSCRIBE" in sell.codes
+
+
 def test_market_quality_failure_can_be_persisted(engine):
     bad = [bar(100, 1), bar(101, 0)]
     provider = ReplayProvider(bad, strict=False)
@@ -143,6 +241,33 @@ def test_worker_respects_persisted_pause(engine):
                            ReplayProvider([bar()]), "TEST", 1)
     asyncio.run(worker.run_once())
     assert worker.metrics.snapshot()["orders_paused"] == 1
+
+
+def test_worker_incremental_checkpoint_survives_restart_and_append(engine):
+    settings_ = Settings(_env_file=None, allowed_session_start="00:00", allowed_session_end="23:59")
+    bars = [bar(100, 0), bar(100, 1), bar(101, 2)]
+    initial = bars[:2]
+    provider = ReplayProvider(initial, source="worker-test")
+    first = TradingWorker(engine, AutomatedOrchestrator(engine, settings_, MomentumStrategy()), provider, "TEST", 1)
+    asyncio.run(first.run_once())
+    asyncio.run(first.run_once())
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(SignalRow)) == 2
+        run_id = session.scalar(select(MarketCheckpoint.run_id))
+        checkpoint = session.scalar(select(MarketCheckpoint).where(MarketCheckpoint.run_id == run_id))
+        assert checkpoint.sequence == 2
+    restarted = TradingWorker(engine, AutomatedOrchestrator(engine, settings_, MomentumStrategy()),
+                              ReplayProvider(initial, source="worker-test"), "TEST", 1)
+    asyncio.run(restarted.run_once())
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(SignalRow)) == 2
+    extended = TradingWorker(engine, AutomatedOrchestrator(engine, settings_, MomentumStrategy()),
+                             ReplayProvider(bars + [bar(103, 3)], source="worker-test"), "TEST", 1)
+    asyncio.run(extended.run_once())
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(SignalRow)) == 3
+        checkpoint = session.scalar(select(MarketCheckpoint).where(MarketCheckpoint.run_id == run_id))
+        assert checkpoint.sequence == 3 and checkpoint.last_processed_timestamp.replace(tzinfo=timezone.utc) == bars[-1].timestamp
 
 
 def test_walk_forward_never_uses_future_segments():

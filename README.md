@@ -6,7 +6,7 @@
 - Phase 2: asynchronous broker-safe lifecycle and reconciliation.
 - Phase 3: durable broker commands plus an official Webull Thailand TEST adapter.
 
-**PRODUCTION TRADING IS NOT AVAILABLE.** No strategy, risk engine, or paper runner automatically sends Webull orders.
+**PRODUCTION TRADING IS NOT AVAILABLE.** The default is local paper execution. A separate, explicit `webull-th-test` worker path can submit only to the attested Thailand TEST hosts.
 
 Webull accepts only `WEBULL_TEST_APP_KEY`, `WEBULL_TEST_APP_SECRET`, and `WEBULL_TEST_ACCOUNT_ID`. The adapter fixes `region=th`, `environment=test`, `th-api.uat.webullbroker.com`, and `th-events-api.uat.webullbroker.com`; writes require an exact account-list match. Diagnostics mask credentials and persist only the account hash.
 
@@ -58,7 +58,7 @@ flowchart LR
     Metrics --> Journal
 ```
 
-`MarketDataProvider`, `Strategy`, and `ExecutionEngine` are typed protocols. Strategies receive only a historical prefix and current position quantity, and return a validated signal. They have no broker dependency. `run_paper(..., execution_engine=...)` supports dependency injection and defaults to the original local engine.
+`MarketDataProvider`, `Strategy`, and `ExecutionEngine` are typed protocols. Strategies receive only a historical prefix and current position quantity, and return a validated signal. They have no broker dependency. `run_paper(..., execution_engine=...)` supports dependency injection and defaults to the original local engine. `TradingWorker` uses an append-only market checkpoint, startup recovery, and periodic reconciliation for broker backends.
 
 The separate Phase 2 `Broker` protocol exposes asynchronous submit/cancel, order, open-order, bounded paginated order-history, fill, position and account queries, restart recovery and reconciliation. The deterministic mock broker requires no network. An order intent is persisted as `CREATED` before submission; broker events then move it through `SUBMITTING`, `SUBMITTED`, `ACKNOWLEDGED`, `PARTIALLY_FILLED`, `FILLED`, `CANCEL_PENDING`, `CANCELLED`, `REJECTED`, `EXPIRED`, or `UNKNOWN`. Illegal transitions fail explicitly. Late status events are retained as `OUT_OF_ORDER_IGNORED` and do not regress state.
 
@@ -85,6 +85,7 @@ The kill switch blocks new exposure while permitting exits. Entry limits check t
 | `broker_accounts`, `broker_positions` | Safe account reference and exact cash, quantity, basis, P&L and fee state |
 | `broker_orders` | Internal/client/broker IDs, approved-risk link, exact intent, lifecycle state and filled quantity |
 | `broker_events`, `broker_fills` | Normalized idempotent events and exact executions that drive accounting |
+| `market_checkpoints` | Durable per-run/source cursor for incremental replay and worker restart |
 
 Follow `trade.entry_signal_id → market_snapshots/risk_decisions → orders → fills`, and the equivalent exit path. Fills reference the same trade and explicit position. Scaling and partial exits retain all fill links even though `exit_signal_id` denotes the latest exit. `POSITION_*` events preserve changing quantities and cost basis. `scripts.verify_lifecycle` independently checks these links and reconciles cash/equity and closed net P&L from fills.
 
@@ -101,7 +102,7 @@ Use `.env` or process environment for configuration. Do not commit credentials. 
 ## Simulation assumptions and metric definitions
 
 - One symbol per run, whole shares, USD-like units, cash only, no shorts or leverage. The risk engine can assess portfolios with multiple symbols, but coordinated multi-symbol replay is not implemented.
-- CSV columns: `symbol,timestamp,open,high,low,close,bid,ask,volume`. Timestamps must include a timezone; rows must be unique and sorted by symbol/time. Demo uses one-minute bars. Required timeframe is a strategy declaration; provide matching data. No market calendar, stale-feed checks or corporate-action adjustment is inferred.
+- CSV columns: `symbol,timestamp,open,high,low,close,bid,ask,volume`. Timestamps must include a timezone; rows must be unique and sorted by symbol/time. Demo uses one-minute bars. Required timeframe is a strategy declaration; provide matching data. `SessionCalendar(exchange="XNYS")` uses the installed exchange calendar for Webull TEST; replay can also use configured local session windows. Stale, regressed, duplicate, non-finite and non-positive data are rejected and journaled. No corporate-action adjustment is inferred.
 - Execution uses the current bar-close quote with zero latency. This deliberately optimistic research model avoids future bars but does not model next-tick availability. BUY uses ask plus configured basis-point slippage; SELL uses bid minus slippage. Fees are per filled share.
 - Orders are immediate-or-cancel. Non-marketable limits cancel; zero volume rejects; available volume caps quantity and cancels the remainder. Bar volume is a synthetic liquidity cap, not a realistic order-book model. There are no resting orders or exchange queue simulation. The runner submits market orders; limit behavior is available and tested at the execution interface.
 - Stops/profits are sampled against bid relative to average entry. No intrabar path is invented from OHLC. End-of-data requests liquidation; an unfilled/partial final exit leaves explicit holdings and `OPEN_POSITIONS`, never a fictitious completed trade.
@@ -135,7 +136,7 @@ See [PHASE2_AUDIT.md](PHASE2_AUDIT.md) for evidence and known limits.
 
 The remaining operational surface is intentionally explicit. Use `execution_backend=local-paper` for the deterministic simulator, `mock-broker` for asynchronous no-network broker tests, and `webull-th-test` only with `AUTOMATED_WEBULL_TEST_ENABLED=true` plus verified TEST credentials. There is no `live` or `production` mode.
 
-`python -m app.cli doctor`, `status`, `positions`, `trades`, `fills`, `commands`, `reconcile`, `pause`, `resume`, `kill-switch`, and `webull-test-status` are safe operator commands. `TradingWorker` handles graceful SIGINT/SIGTERM shutdown. Docker defaults to local paper and GitHub Actions never enables broker integrations.
+`python -m app.cli doctor`, `status`, `positions`, `trades`, `fills`, `commands`, `reconcile`, `pause`, `resume`, `kill-switch`, and `webull-test-status` are safe operator commands. `reconcile` performs a bounded read-only Webull TEST comparison when a persisted TEST account and credentials are available; otherwise it reports the missing configuration. `TradingWorker` handles graceful SIGINT/SIGTERM shutdown, durable command recovery, incremental feeds, and reconciliation while controls are paused. Docker defaults to local paper and GitHub Actions never enables broker integrations.
 
 `app.analytics.backtest.replay` evaluates deterministic runs; `app.analytics.walkforward.split_walk_forward` creates chronological train, validation, and out-of-sample segments. See [FINAL_SYSTEM_AUDIT.md](FINAL_SYSTEM_AUDIT.md) for the complete evidence and limits.
 
@@ -143,6 +144,6 @@ The remaining operational surface is intentionally explicit. Use `execution_back
 
 Paper terminal IOC results now have stable order/fill IDs. Identical signal, terminal order-result or fill replays are no-ops; reused IDs with changed payloads fail explicitly. Signals also have a unique semantic decision key per run/version/symbol/time/source, so regenerating a UUID does not create a second decision. Fill IDs are primary keys. Multi-fill results are deduplicated and validated before accounting; filled quantity, per-fill fees and available position/cash must reconcile. The filled-entry-order limit counts orders, not component fills.
 
-All result processing must run inside the caller's database transaction, as the runner does. On any exception discard the in-memory portfolio and reload the committed checkpoint. A revision check prevents a stale runner from committing the same bar. This is a local paper replay boundary, not a live broker event ingestion/reconciliation system. Broker streaming and partial-to-final asynchronous transitions remain out of scope.
+All result processing must run inside the caller's database transaction, as the runner does. On any exception discard the in-memory portfolio and reload the committed checkpoint. A revision check prevents a stale runner from committing the same bar. This is a local paper replay boundary plus a separate asynchronous broker event boundary. Webull event callbacks normalize into a queue, persistent client-order resolution is used after restart, and REST history reconciliation covers gaps. Authenticated external TEST behavior remains an opt-in verification item.
 
 See `PHASE1_AUDIT.md` and `data/phase1-original-audit.json` for the independent Decimal audit of the original results, full IDs, signal categories and price-by-price excursion calculations. The existing diagnostic verifier remains available as `python -m scripts.verify_lifecycle`.

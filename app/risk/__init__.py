@@ -24,7 +24,8 @@ class RiskEngine:
             return "TAKE_PROFIT_TRIGGERED"
         return None
 
-    def evaluate(self, signal: Signal, quantity: int, bar: Bar, portfolio: Portfolio, *, observed_at=None) -> RiskDecision:
+    def evaluate(self, signal: Signal, quantity: int, bar: Bar, portfolio: Portfolio, *, observed_at=None,
+                 pending_orders=()) -> RiskDecision:
         s = self.settings
         codes: list[str] = []
         position = portfolio.positions.get(signal.symbol, Position())
@@ -45,17 +46,21 @@ class RiskEngine:
             if s.kill_switch:
                 codes.append("KILL_SWITCH")
             price = bar.ask * (1 + s.slippage_bps / 10000)
-            exposure = (position.quantity + quantity) * price
+            pending_buy_qty = sum(float(getattr(order, "quantity", 0) - getattr(order, "filled_quantity", 0))
+                                  for order in pending_orders
+                                  if getattr(order, "side", "") == "BUY" and getattr(order, "symbol", "") == signal.symbol)
+            pending_buy_notional = pending_buy_qty * price
+            exposure = (position.quantity + pending_buy_qty + quantity) * price
             if quantity * price > s.max_order_notional:
                 codes.append("MAX_ORDER_NOTIONAL")
             current_exposure = sum(p.quantity * p.mark for p in portfolio.positions.values())
-            if current_exposure + quantity * price > s.max_portfolio_exposure:
+            if current_exposure + pending_buy_notional + quantity * price > s.max_portfolio_exposure:
                 codes.append("MAX_PORTFOLIO_EXPOSURE")
             if portfolio.orders_by_symbol.get(signal.symbol, 0) >= s.max_orders_per_symbol_session:
                 codes.append("MAX_ORDERS_PER_SYMBOL_SESSION")
             if portfolio.peak_equity and portfolio.equity <= portfolio.peak_equity * (1 - s.max_drawdown):
                 codes.append("MAX_DRAWDOWN_KILL_SWITCH")
-            if position.quantity + quantity > s.max_position_size:
+            if position.quantity + pending_buy_qty + quantity > s.max_position_size:
                 codes.append("MAX_POSITION_SIZE")
             if exposure > portfolio.equity * s.max_position_pct:
                 codes.append("MAX_POSITION_PCT")
@@ -71,4 +76,10 @@ class RiskEngine:
                 codes.append("MAX_CONCURRENT_POSITIONS")
             if portfolio.cooldown_until and signal.timestamp < portfolio.cooldown_until:
                 codes.append("LOSS_COOLDOWN")
+        if signal.action in ("EXIT", "SELL"):
+            pending_sell_qty = sum(float(getattr(order, "quantity", 0) - getattr(order, "filled_quantity", 0))
+                                   for order in pending_orders
+                                   if getattr(order, "side", "") == "SELL" and getattr(order, "symbol", "") == signal.symbol)
+            if pending_sell_qty + quantity > position.quantity:
+                codes.append("PENDING_SELL_OVERSUBSCRIBE")
         return RiskDecision("REJECTED" if codes else "APPROVED", tuple(codes))

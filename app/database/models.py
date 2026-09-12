@@ -242,3 +242,14 @@ class DataQualityEvent(Record, Base):
     source: Mapped[str] = mapped_column(String(80))
     code: Mapped[str] = mapped_column(String(80))
     detail: Mapped[str | None] = mapped_column(String(300))
+
+
+class MarketCheckpoint(Record, Base):
+    __tablename__ = "market_checkpoints"
+    __table_args__ = (UniqueConstraint("run_id", "symbol", "source"),)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"))
+    symbol: Mapped[str] = mapped_column(String(32))
+    source: Mapped[str] = mapped_column(String(80))
+    last_processed_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_processed_hash: Mapped[str | None] = mapped_column(String(64))
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

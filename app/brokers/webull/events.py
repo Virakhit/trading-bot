@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
+from queue import Empty, SimpleQueue
 from uuid import NAMESPACE_URL, uuid5
 from app.brokers.models import BrokerEvent, BrokerFill, OrderState
 from app.brokers.webull.adapter import TH_TEST_EVENTS_HOST, map_webull_order_status
@@ -12,6 +13,10 @@ class WebullTestEvents:
             raise ValueError("Only Webull Thailand TEST events are permitted")
         self.config, self.on_event, self.client, self.resolver = config, on_event, client, resolver
         self.unmapped_events = []
+        self.queue = SimpleQueue()
+        self.connected = False
+        self.reconnect_count = 0
+        self.last_event_at = None
 
     def translate(self, payload):
         client_id = str(payload["client_order_id"])
@@ -33,7 +38,11 @@ class WebullTestEvents:
 
     def handle(self, event_type, subscribe_type, payload, raw_message=None):
         try:
-            self.on_event(self.translate(payload))
+            event = self.translate(payload)
+            self.queue.put(event)
+            self.connected, self.last_event_at = True, event.timestamp
+            if self.on_event:
+                self.on_event(event)
         except LookupError as exc:
             # Preserve an auditable broker event without handing an unknown ID to accounting.
             self.unmapped_events.append({"payload": payload, "error": str(exc)})
@@ -44,8 +53,28 @@ class WebullTestEvents:
             self.client = TradeEventsClient(self.config.app_key.get_secret_value(), self.config.app_secret.get_secret_value(),
                                             "th", host=TH_TEST_EVENTS_HOST)
         self.client.on_events_message = self.handle
-        return self.client.do_subscribe([self.config.account_id.get_secret_value()])
+        result = self.client.do_subscribe([self.config.account_id.get_secret_value()])
+        self.connected = True
+        return result
+
+    def disconnected(self):
+        self.connected = False
+
+    def reconnect(self):
+        self.reconnect_count += 1
+        return self.subscribe()
+
+    def drain(self, limit: int | None = None):
+        events = []
+        while limit is None or len(events) < limit:
+            try:
+                events.append(self.queue.get_nowait())
+            except Empty:
+                break
+        return events
 
     async def recover_gap(self, broker):
         for event in await broker.recover():
-            self.on_event(event)
+            self.queue.put(event)
+            if self.on_event:
+                self.on_event(event)

@@ -78,6 +78,7 @@ class SyntheticProvider(ReplayProvider):
 
 class CSVProvider:
     def __init__(self, path: str | Path):
+        self.source = f"csv:{Path(path).name}"
         frame = pd.read_csv(path)
         self.bars = [Bar.model_validate(row) for row in frame.to_dict("records")]
         keys = [(b.symbol, b.timestamp) for b in self.bars]

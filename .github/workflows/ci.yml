@@ -21,6 +21,7 @@ jobs:
       - run: python -m app.cli run-paper
       - run: python -m scripts.verify_lifecycle
       - run: python -c "from pathlib import Path; from app.security import scan_repository; assert not scan_repository(Path('.'))"
+      - run: docker build --tag trading-bot:ci .
       - run: |
           python - <<'PY'
           from pathlib import Path

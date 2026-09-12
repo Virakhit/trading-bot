@@ -6,11 +6,13 @@ cffi==2.1.1
 charset-normalizer==3.5.1
 colorama==0.4.6
 cryptography==42.0.8
+exchange-calendars==4.11.1
 greenlet==3.5.5
 grpcio==1.69.0
 idna==3.19
 iniconfig==2.3.0
 jmespath==0.10.0
+korean-lunar-calendar==0.4.0
 mako==1.4.1
 markupsafe==3.0.3
 numpy==2.5.3
@@ -22,6 +24,7 @@ pydantic==2.13.5
 pydantic-core==2.46.5
 pydantic-settings==2.15.0
 protobuf==5.29.6
+pyluach==2.3.0
 pycparser==3.0
 pygments==2.21.0
 pytest==8.4.2
@@ -31,6 +34,7 @@ python-dotenv==1.2.3
 pytz==2026.3.post1
 six==1.17.0
 sqlalchemy==2.0.52
+toolz==1.1.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
 tzdata==2026.3

@@ -127,6 +127,11 @@ class DurableBrokerExecutor:
                 if event.internal_order_id != order.id:
                     event = event.model_copy(update={"internal_order_id": order.id})
                 service.apply_event(event)
+            if remote.broker_order_id and order.broker_order_id is None:
+                order.broker_order_id = remote.broker_order_id
+            if remote.state == OrderState.UNKNOWN:
+                command.safe_error_category = "BROKER_STATUS_UNKNOWN"
+                return remote
             # A terminal fill state without executions is not sufficient evidence for accounting.
             if remote.state in {OrderState.PARTIALLY_FILLED, OrderState.FILLED}:
                 if order.filled_quantity < remote.filled_quantity:
@@ -135,8 +140,6 @@ class DurableBrokerExecutor:
                 if remote.state == OrderState.FILLED and order.filled_quantity != order.quantity:
                     command.safe_error_category = "BROKER_FILLED_WITHOUT_EXECUTIONS"
                     return remote
-            if remote.broker_order_id and order.broker_order_id is None:
-                order.broker_order_id = remote.broker_order_id
             if OrderState(order.state) != remote.state:
                 service.transition(order, remote.state)
             command.status = CommandStatus.RECONCILED

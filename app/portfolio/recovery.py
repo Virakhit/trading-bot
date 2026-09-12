@@ -8,12 +8,12 @@ from app.database.models import FillRow, OrderRow, PositionRow, Run, Trade
 from app.portfolio import Portfolio, Position
 
 
-def checkpoint(portfolio: Portfolio, next_index: int, quantity: int) -> dict:
+def checkpoint(portfolio: Portfolio, next_index: int, quantity: int, *, data_prefix_hash: str | None = None) -> dict:
     return {"next_index": next_index, "quantity": quantity,
             "day": str(portfolio.current_day) if portfolio.current_day else None,
             "day_start_equity": portfolio.day_start_equity, "trades_today": portfolio.trades_today,
             "consecutive_losses": portfolio.consecutive_losses, "peak_equity": portfolio.peak_equity,
-            "orders_by_symbol": dict(portfolio.orders_by_symbol),
+            "orders_by_symbol": dict(portfolio.orders_by_symbol), "data_prefix_hash": data_prefix_hash,
             "cooldown_until": portfolio.cooldown_until.isoformat() if portfolio.cooldown_until else None}
 
 
